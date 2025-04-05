@@ -1079,6 +1079,11 @@ function Show-TodoMenu {
 }
 
 # Export functions
-Export-ModuleMember -Function Show-TodoList, Show-FilteredTodoList, New-TrackerTodoItem, 
-                     Update-TrackerTodoItem, Complete-TrackerTodoItem, Remove-TrackerTodoItem, 
-                     Get-TrackerTodoItem, Show-TodoMenu
+#Export-ModuleMember -Function Show-TodoList, Show-FilteredTodoList, New-TrackerTodoItem, 
+#                     Update-TrackerTodoItem, Complete-TrackerTodoItem, Remove-TrackerTodoItem, 
+#                     Get-TrackerTodoItem, Show-TodoMenu
+#
+# Fix for ProjectTracker.Todos.psm1
+# Add this line at the end of ProjectTracker.Todos.psm1 if it's not already there
+# It looks like this might already be properly exported, but including it for completeness
+Export-ModuleMember -Function Show-TodoList, Show-FilteredTodoList, New-TrackerTodoItem, Update-TrackerTodoItem, Complete-TrackerTodoItem, Remove-TrackerTodoItem, Get-TrackerTodoItem, Show-TodoMenu

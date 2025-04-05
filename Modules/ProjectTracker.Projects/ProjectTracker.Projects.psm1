@@ -621,6 +621,523 @@ function Update-TrackerProject {
     }
 }
 
+
+##More Missing stuff
+# 1. For Date Functions region - add this function:
+
+<#
+.SYNOPSIS
+    Gets the full month name for a month number.
+.DESCRIPTION
+    Returns the full name of the month for the specified month number (1-12).
+.PARAMETER Month
+    The month number (1-12).
+.EXAMPLE
+    $monthName = Get-MonthName -Month 9
+.OUTPUTS
+    System.String - The full month name
+#>
+function Get-MonthName {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [ValidateRange(1, 12)]
+        [int]$Month
+    )
+    
+    # Get the month name from the current culture
+    return (Get-Culture).DateTimeFormat.GetMonthName($Month)
+}
+
+
+# 2. For Helper Functions region - add these functions:
+
+<#
+.SYNOPSIS
+    Shows a simple confirmation dialog.
+.DESCRIPTION
+    Displays a confirmation dialog with the specified message and returns the user's response.
+.PARAMETER Message
+    The message to display.
+.PARAMETER Title
+    The title of the dialog.
+.PARAMETER DefaultYes
+    If specified, defaults to "Yes" when the user presses Enter.
+.EXAMPLE
+    if (Show-Confirmation -Message "Are you sure you want to delete this file?" -Title "Confirm Delete") {
+        # Deletion code here
+    }
+.OUTPUTS
+    System.Boolean - True if the user confirmed, False otherwise
+#>
+function Show-Confirmation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Message,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$Title = "Confirm",
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$DefaultYes
+    )
+    
+    # Use info box if available
+    if ($script:currentTheme) {
+        # Display message with the theme engine
+        Show-InfoBox -Title $Title -Message "$Message`n`nEnter Y for Yes, N for No." -Type Warning
+    } else {
+        # Fall back to simple console output
+        Write-Host "`n-- $Title --" -ForegroundColor Yellow
+        Write-Host $Message -ForegroundColor White
+        Write-Host "------------" -ForegroundColor Yellow
+    }
+    
+    # Get default option display
+    $defaultOption = if ($DefaultYes) { "(Y/n)" } else { "(y/N)" }
+    
+    # Ask for confirmation
+    Write-Host "Confirm $defaultOption? " -ForegroundColor Cyan -NoNewline
+    $response = Read-Host
+    
+    # Handle empty response
+    if ([string]::IsNullOrWhiteSpace($response)) {
+        return $DefaultYes
+    }
+    
+    # Return based on response
+    return $response -match '^[yY]'
+}
+
+<#
+.SYNOPSIS
+    Gets the value of an environment variable with a default.
+.DESCRIPTION
+    Returns the value of the specified environment variable, or a default if not set.
+.PARAMETER Name
+    The name of the environment variable.
+.PARAMETER DefaultValue
+    The default value to return if the variable is not set.
+.EXAMPLE
+    $logLevel = Get-EnvironmentVariable -Name "APP_LOG_LEVEL" -DefaultValue "INFO"
+.OUTPUTS
+    System.String - The environment variable value or default
+#>
+function Get-EnvironmentVariable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Name,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$DefaultValue = ""
+    )
+    
+    $value = [Environment]::GetEnvironmentVariable($Name)
+    
+    if ([string]::IsNullOrEmpty($value)) {
+        return $DefaultValue
+    }
+    
+    return $value
+}
+
+<#
+.SYNOPSIS
+    Joins paths safely, handling errors.
+.DESCRIPTION
+    Joins path components safely, handling edge cases and errors.
+.PARAMETER Path
+    The base path.
+.PARAMETER ChildPath
+    The child path to append.
+.EXAMPLE
+    $fullPath = Join-PathSafely -Path $baseDir -ChildPath "data/file.txt"
+.OUTPUTS
+    System.String - The combined path
+#>
+function Join-PathSafely {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Path,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$ChildPath
+    )
+    
+    # Handle edge cases
+    if ([string]::IsNullOrEmpty($Path)) {
+        return $ChildPath
+    }
+    
+    if ([string]::IsNullOrEmpty($ChildPath)) {
+        return $Path
+    }
+    
+    try {
+        # Use .NET Path class for reliable path joining
+        return [System.IO.Path]::Combine($Path, $ChildPath)
+    } catch {
+        Write-Warning "Error joining paths: $Path and $ChildPath - $($_.Exception.Message)"
+        # Fall back to manual joining
+        if ($Path.EndsWith([System.IO.Path]::DirectorySeparatorChar) -or 
+            $Path.EndsWith([System.IO.Path]::AltDirectorySeparatorChar)) {
+            return "$Path$ChildPath"
+        } else {
+            return "$Path$([System.IO.Path]::DirectorySeparatorChar)$ChildPath"
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets a unique filename in a directory.
+.DESCRIPTION
+    Generates a unique filename in the specified directory by appending a number if needed.
+.PARAMETER Directory
+    The directory to check for existing files.
+.PARAMETER FileName
+    The base filename to use.
+.PARAMETER Extension
+    The file extension (without the dot).
+.EXAMPLE
+    $uniqueName = Get-UniqueFileName -Directory "C:\Temp" -FileName "Report" -Extension "txt"
+.OUTPUTS
+    System.String - The unique filename (without path)
+#>
+function Get-UniqueFileName {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Directory,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$FileName,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$Extension
+    )
+    
+    # Ensure extension doesn't start with a dot
+    if ($Extension.StartsWith(".")) {
+        $Extension = $Extension.Substring(1)
+    }
+    
+    # Check if the initial filename exists
+    $baseFileName = "$FileName.$Extension"
+    $fullPath = Join-Path -Path $Directory -ChildPath $baseFileName
+    
+    if (-not (Test-Path -Path $fullPath)) {
+        return $baseFileName
+    }
+    
+    # Find a unique name by appending numbers
+    $counter = 1
+    do {
+        $newFileName = "$FileName($counter).$Extension"
+        $fullPath = Join-Path -Path $Directory -ChildPath $newFileName
+        $counter++
+    } while (Test-Path -Path $fullPath)
+    
+    return $newFileName
+}
+
+<#
+.SYNOPSIS
+    Converts a string to a valid filename.
+.DESCRIPTION
+    Replaces invalid characters in a string to make it a valid filename.
+.PARAMETER InputString
+    The string to convert.
+.PARAMETER ReplacementChar
+    The character to use for replacement. Default is '_'.
+.EXAMPLE
+    $fileName = ConvertTo-ValidFileName -InputString "Project: 2023/04"
+.OUTPUTS
+    System.String - The sanitized filename
+#>
+function ConvertTo-ValidFileName {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$InputString,
+        
+        [Parameter(Mandatory=$false)]
+        [char]$ReplacementChar = '_'
+    )
+    
+    # Get invalid characters from .NET
+    $invalidChars = [System.IO.Path]::GetInvalidFileNameChars()
+    
+    # Replace each invalid character
+    $result = $InputString
+    foreach ($char in $invalidChars) {
+        if ($result.Contains($char)) {
+            $result = $result.Replace($char, $ReplacementChar)
+        }
+    }
+    
+    return $result
+}
+
+<#
+.SYNOPSIS
+    Gets a temp file path.
+.DESCRIPTION
+    Creates a temporary file and returns its path.
+.PARAMETER Prefix
+    Optional prefix for the filename.
+.PARAMETER Extension
+    The file extension (without the dot).
+.PARAMETER CreateFile
+    If specified, creates an empty file at the path.
+.EXAMPLE
+    $tempFile = Get-TempFilePath -Prefix "export" -Extension "csv" -CreateFile
+.OUTPUTS
+    System.String - The path to the temporary file
+#>
+function Get-TempFilePath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [string]$Prefix = "",
+        
+        [Parameter(Mandatory=$false)]
+        [string]$Extension = "tmp",
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$CreateFile
+    )
+    
+    # Ensure extension doesn't start with a dot
+    if ($Extension.StartsWith(".")) {
+        $Extension = $Extension.Substring(1)
+    }
+    
+    # Generate a unique filename in the temp directory
+    $tempDir = [System.IO.Path]::GetTempPath()
+    $fileName = if ([string]::IsNullOrEmpty($Prefix)) {
+        [System.Guid]::NewGuid().ToString("N")
+    } else {
+        "$Prefix-$([System.Guid]::NewGuid().ToString("N"))"
+    }
+    
+    $filePath = Join-Path -Path $tempDir -ChildPath "$fileName.$Extension"
+    
+    # Create the file if requested
+    if ($CreateFile) {
+        try {
+            [System.IO.File]::Create($filePath).Close()
+        } catch {
+            Write-Warning "Failed to create temp file: $($_.Exception.Message)"
+        }
+    }
+    
+    return $filePath
+}
+
+<#
+.SYNOPSIS
+    Generates a random password.
+.DESCRIPTION
+    Creates a random password with configurable complexity.
+.PARAMETER Length
+    The length of the password.
+.PARAMETER IncludeSpecialChars
+    If specified, includes special characters.
+.PARAMETER IncludeNumbers
+    If specified, includes numeric characters.
+.PARAMETER IncludeUppercase
+    If specified, includes uppercase letters.
+.PARAMETER IncludeLowercase
+    If specified, includes lowercase letters.
+.EXAMPLE
+    $password = New-RandomPassword -Length 12 -IncludeSpecialChars -IncludeNumbers
+.OUTPUTS
+    System.String - The generated password
+#>
+function New-RandomPassword {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [int]$Length = 12,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$IncludeSpecialChars,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$IncludeNumbers = $true,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$IncludeUppercase = $true,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$IncludeLowercase = $true
+    )
+    
+    # Define character sets
+    $lowercase = "abcdefghijklmnopqrstuvwxyz"
+    $uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    $numbers = "0123456789"
+    $special = "!@#$%^&*()_-+={}[]|:;<>,.?/~"
+    
+    # Combine selected character sets
+    $charSet = ""
+    if ($IncludeLowercase) { $charSet += $lowercase }
+    if ($IncludeUppercase) { $charSet += $uppercase }
+    if ($IncludeNumbers) { $charSet += $numbers }
+    if ($IncludeSpecialChars) { $charSet += $special }
+    
+    # Ensure at least one character set is selected
+    if ([string]::IsNullOrEmpty($charSet)) {
+        $charSet = $lowercase
+    }
+    
+    # Generate password
+    $random = New-Object System.Random
+    $password = ""
+    
+    for ($i = 0; $i -lt $Length; $i++) {
+        $password += $charSet[$random.Next(0, $charSet.Length)]
+    }
+    
+    return $password
+}
+
+<#
+.SYNOPSIS
+    Converts bytes to a human-readable size.
+.DESCRIPTION
+    Converts a byte count to a human-readable size (KB, MB, GB, etc.).
+.PARAMETER Bytes
+    The number of bytes.
+.PARAMETER Precision
+    The number of decimal places to include.
+.EXAMPLE
+    $size = Convert-BytesToHumanReadable -Bytes 1536000
+.OUTPUTS
+    System.String - The formatted size
+#>
+function Convert-BytesToHumanReadable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [long]$Bytes,
+        
+        [Parameter(Mandatory=$false)]
+        [int]$Precision = 2
+    )
+    
+    $sizes = @("B", "KB", "MB", "GB", "TB", "PB")
+    $order = 0
+    
+    while ($Bytes -ge 1024 -and $order -lt $sizes.Count - 1) {
+        $Bytes /= 1024
+        $order++
+    }
+    
+    return "{0:N$Precision} {1}" -f $Bytes, $sizes[$order]
+}
+
+<#
+.SYNOPSIS
+    Gets the position of the substring in a string, ignoring case.
+.DESCRIPTION
+    Returns the position of the substring in a string, with case-insensitive comparison.
+.PARAMETER String
+    The string to search in.
+.PARAMETER SubString
+    The substring to find.
+.PARAMETER StartIndex
+    The starting position of the search.
+.EXAMPLE
+    $pos = Find-SubstringPosition -String "Hello World" -SubString "world"
+.OUTPUTS
+    System.Int32 - The position of the substring, or -1 if not found
+#>
+function Find-SubstringPosition {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$String,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$SubString,
+        
+        [Parameter(Mandatory=$false)]
+        [int]$StartIndex = 0
+    )
+    
+    if ([string]::IsNullOrEmpty($String) -or [string]::IsNullOrEmpty($SubString)) {
+        return -1
+    }
+    
+    return $String.ToLower().IndexOf($SubString.ToLower(), $StartIndex)
+}
+
+<#
+.SYNOPSIS
+    Slugifies a string for use in URLs or filenames.
+.DESCRIPTION
+    Converts a string to a URL-friendly slug.
+.PARAMETER Text
+    The text to slugify.
+.PARAMETER Separator
+    The separator character to use. Default is '-'.
+.EXAMPLE
+    $slug = Convert-ToSlug -Text "Hello World! This is a test."
+.OUTPUTS
+    System.String - The slugified string
+#>
+function Convert-ToSlug {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Text,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$Separator = "-"
+    )
+    
+    # Convert to lowercase
+    $result = $Text.ToLower()
+    
+    # Remove accents/diacritics
+    $normalizedString = $result.Normalize([System.Text.NormalizationForm]::FormD)
+    $stringBuilder = New-Object System.Text.StringBuilder
+    
+    foreach ($char in $normalizedString.ToCharArray()) {
+        $unicodeCategory = [System.Globalization.CharUnicodeInfo]::GetUnicodeCategory($char)
+        if ($unicodeCategory -ne [System.Globalization.UnicodeCategory]::NonSpacingMark) {
+            [void]$stringBuilder.Append($char)
+        }
+    }
+    
+    $result = $stringBuilder.ToString().Normalize([System.Text.NormalizationForm]::FormC)
+    
+    # Replace spaces with the separator
+    $result = $result -replace '\s+', $Separator
+    
+    # Remove invalid characters
+    $result = $result -replace '[^a-z0-9\-_]', ''
+    
+    # Remove multiple consecutive separators
+    $result = $result -replace "$Separator{2,}", $Separator
+    
+    # Remove separator from beginning and end
+    $result = $result.Trim($Separator)
+    
+    return $result
+}
+
+# 3. Add Show-InfoBox function to Display Functions region (since it's at the top of the file)
+# First remove it from the beginning of the file, then add it to the appropriate region
+##end of that missing stuff
+
+
+
 <#
 .SYNOPSIS
     Updates todo items related to a project.
@@ -698,8 +1215,6 @@ function Update-TodoForProject {
     }
 }
 
-# Complete the Remove-TrackerProject function that was incomplete
-
 <#
 .SYNOPSIS
     Deletes a project.
@@ -721,71 +1236,6 @@ function Remove-TrackerProject {
     
     Write-AppLog "Deleting project: $Nickname" -Level INFO
     Render-Header "Delete Project"
-    
-    try {
-        $config = Get-AppConfig
-        $ProjectsFilePath = $config.ProjectsFullPath
-        
-        # Get existing projects
-        $projects = @(Get-EntityData -FilePath $ProjectsFilePath -RequiredHeaders $PROJECTS_HEADERS)
-        $project = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
-        
-        if (-not $project) {
-            Write-ColorText "Error: Project '$Nickname' not found." -ForegroundColor (Get-CurrentTheme).Colors.Error
-            Read-Host "Press Enter to continue..."
-            return $false
-        }
-        
-        # Confirm deletion
-        $confirmText = "Are you sure you want to delete project '$($project.Nickname)' ($($project.FullProjectName))?"
-        Write-ColorText $confirmText -ForegroundColor (Get-CurrentTheme).Colors.Warning
-        Write-ColorText "This will also delete all associated todo items." -ForegroundColor (Get-CurrentTheme).Colors.Warning
-        Write-ColorText "Type 'yes' to confirm: " -ForegroundColor (Get-CurrentTheme).Colors.Warning -NoNewline
-        $confirmation = Read-Host
-        
-        if ($confirmation -ne "yes") {
-            Write-ColorText "Project deletion cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
-            Read-Host "Press Enter to continue..."
-            return $false
-        }
-        
-        # Remove the project from the list
-        $updatedProjects = $projects | Where-Object { $_.Nickname -ne $Nickname }
-        
-        # Save projects
-        if (-not (Save-EntityData -Data $updatedProjects -FilePath $ProjectsFilePath -RequiredHeaders $PROJECTS_HEADERS)) {
-            Write-ColorText "Failed to save updated project list." -ForegroundColor (Get-CurrentTheme).Colors.Error
-            Read-Host "Press Enter to continue..."
-            return $false
-        }
-        
-        # Clean up related todos
-        try {
-            $TodosFilePath = $config.TodosFullPath
-            $todos = @(Get-EntityData -FilePath $TodosFilePath -RequiredHeaders $TODO_HEADERS)
-            $updatedTodos = $todos | Where-Object { $_.Nickname -ne $Nickname }
-            
-            # If todos were removed, save the updated list
-            if ($updatedTodos.Count -lt $todos.Count) {
-                Save-EntityData -Data $updatedTodos -FilePath $TodosFilePath -RequiredHeaders $TODO_HEADERS | Out-Null
-                Write-Verbose "Removed $($todos.Count - $updatedTodos.Count) todo items related to project '$Nickname'"
-            }
-        } catch {
-            Write-Verbose "Error cleaning up todos: $($_.Exception.Message)"
-            # Continue with project deletion even if todo cleanup fails
-        }
-        
-        # Success
-        Write-ColorText "Project '$Nickname' deleted successfully!" -ForegroundColor (Get-CurrentTheme).Colors.Success
-        Write-AppLog "Project deleted: $Nickname" -Level INFO
-        
-        Read-Host "Press Enter to continue..."
-        return $true
-    } catch {
-        Handle-Error -ErrorRecord $_ -Context "Deleting project" -Continue
-        return $false
-    }
-}
 
 ##Start of missing content
 # Add this function to the ProjectTracker.Projects.psm1 file
@@ -1121,3 +1571,89 @@ function Update-TrackerProjectHours {
 
 # Ensure this is in the Export-ModuleMember line at the end of the file:
 # Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, Update-TrackerProjectHours, Show-ProjectMenu
+
+# Add this at the end of your ProjectTracker.Core.psm1 file
+
+Export-ModuleMember -Function @(
+    # Configuration Functions
+    'Get-AppConfig', 
+    'Save-AppConfig',
+    'Merge-Hashtables',
+
+    # Error Handling Functions
+    'Handle-Error',
+    'Invoke-WithErrorHandling',
+
+    # Logging Functions
+    'Write-AppLog',
+    'Rotate-LogFile',
+    'Get-AppLogContent',
+
+    # Data Functions
+    'Ensure-DirectoryExists',
+    'Get-EntityData',
+    'Save-EntityData',
+    'Update-CumulativeHours',
+    'Get-EntityById',
+    'Update-EntityById',
+    'Remove-EntityById',
+    'Create-Entity',
+
+    # Date Functions
+    'Parse-DateInput',
+    'Convert-DisplayDateToInternal',
+    'Convert-InternalDateToDisplay',
+    'Get-RelativeDateDescription',
+    'Get-DateInput',
+    'Get-FirstDayOfWeek',
+    'Get-WeekNumber',
+    'Get-MonthName',
+    'Get-RelativeWeekDescription',
+    'Get-MonthDateRange',
+
+    # Helper Functions
+    'Read-UserInput',
+    'Confirm-Action',
+    'New-MenuItems',
+    'Show-Confirmation',
+    'Get-EnvironmentVariable',
+    'Join-PathSafely',
+    'Get-UniqueFileName',
+    'ConvertTo-ValidFileName',
+    'Get-TempFilePath',
+    'Convert-PriorityToInt',
+    'New-ID',
+    'New-RandomPassword',
+    'Convert-BytesToHumanReadable',
+    'Find-SubstringPosition',
+    'Convert-ToSlug',
+
+    # Display Functions
+    'Get-SafeConsoleWidth',
+    'Write-ColorText',
+    'Remove-AnsiCodes',
+    'Get-VisibleStringLength',
+    'Safe-TruncateString',
+    'Render-Header',
+    'Show-Table',
+    'Show-InfoBox',
+    'Show-ProgressBar',
+    'Show-DynamicMenu',
+
+    # Theme Management Functions
+    'Get-Theme',
+    'Set-CurrentTheme',
+    'Get-CurrentTheme',
+    'Get-AvailableThemes',
+    'Merge-ThemeRecursive',
+    
+    # Initialization Functions
+    'Initialize-DataEnvironment',
+    'Initialize-ThemeEngine',
+    'Copy-HashtableDeep',
+    'ConvertFrom-JsonToHashtable'
+)
+
+# Fix for ProjectTracker.Projects.psm1
+# Add this line at the end of ProjectTracker.Projects.psm1
+Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, Update-TrackerProjectHours, Show-ProjectMenu, Add-TodoItem, Update-TodoForProject

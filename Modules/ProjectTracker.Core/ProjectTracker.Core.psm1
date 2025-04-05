@@ -4598,3 +4598,41 @@ function ConvertFrom-JsonToHashtable {
 }
 
 #endregion Initialization Functions
+# Fix for ProjectTracker.Core.psm1
+# Add this at the very end of the file
+$coreFunctions = @(
+    # Configuration functions
+    'Get-AppConfig', 'Save-AppConfig', 'Merge-Hashtables',
+    
+    # Error handling
+    'Handle-Error', 'Invoke-WithErrorHandling',
+    
+    # Logging
+    'Write-AppLog', 'Rotate-LogFile', 'Get-AppLogContent',
+    
+    # Data functions
+    'Ensure-DirectoryExists', 'Get-EntityData', 'Save-EntityData', 'Update-CumulativeHours',
+    'Initialize-DataEnvironment', 'Get-EntityById', 'Update-EntityById', 'Remove-EntityById', 'Create-Entity',
+    
+    # Date functions
+    'Parse-DateInput', 'Convert-DisplayDateToInternal', 'Convert-InternalDateToDisplay',
+    'Get-RelativeDateDescription', 'Get-DateInput', 'Get-FirstDayOfWeek', 'Get-WeekNumber',
+    
+    # Helper functions
+    'Read-UserInput', 'Confirm-Action', 'New-MenuItems', 'Show-Confirmation',
+    'Get-EnvironmentVariable', 'Join-PathSafely', 'Get-UniqueFileName',
+    'ConvertTo-ValidFileName', 'Get-TempFilePath', 'Convert-PriorityToInt', 'New-ID',
+    
+    # Theme functions
+    'Initialize-ThemeEngine', 'Get-Theme', 'Set-CurrentTheme', 'Get-CurrentTheme', 'Get-AvailableThemes',
+    
+    # Display functions
+    'Write-ColorText', 'Show-Table', 'Render-Header', 'Show-InfoBox', 'Show-ProgressBar',
+    'Show-DynamicMenu', 'Get-VisibleStringLength', 'Safe-TruncateString', 'Remove-AnsiCodes',
+    
+    # Hashtable/JSON utilities
+    'Copy-HashtableDeep', 'ConvertFrom-JsonToHashtable'
+)
+
+# Add this line at the end of ProjectTracker.Core.psm1
+Export-ModuleMember -Function $coreFunctions
