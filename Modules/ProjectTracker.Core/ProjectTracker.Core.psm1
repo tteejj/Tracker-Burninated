@@ -43,18 +43,18 @@ function Show-InfoBox {
     param(
         [Parameter(Mandatory=$true)]
         [string]$Title,
-        
+
         [Parameter(Mandatory=$true)]
         [string]$Message,
-        
+
         [Parameter(Mandatory=$false)]
         [ValidateSet("Info", "Warning", "Error", "Success")]
         [string]$Type = "Info"
     )
-    
+
     # Ensure we have a current theme
     $theme = Get-CurrentTheme
-    
+
     # Determine color based on type
     $color = switch ($Type) {
         "Warning" { $theme.Colors.Warning }
@@ -62,24 +62,24 @@ function Show-InfoBox {
         "Success" { $theme.Colors.Success }
         default { $theme.Colors.Accent2 }
     }
-    
+
     # Get console width
     $consoleWidth = Get-SafeConsoleWidth
-    
+
     # Calculate box dimensions
     $boxWidth = [Math]::Min($consoleWidth - 4, 70)
     $contentWidth = $boxWidth - 4 # Accounting for borders and padding
-    
+
     # Format message to fit within the box
     function Format-TextToWidth {
         param([string]$Text, [int]$Width)
-        
+
         if ([string]::IsNullOrEmpty($Text)) { return @() }
-        
+
         $words = $Text -split '\s+'
         $lines = @()
         $currentLine = ""
-        
+
         foreach ($word in $words) {
             # If adding this word would exceed the width
             if ($currentLine.Length + $word.Length + 1 -gt $Width) {
@@ -88,7 +88,7 @@ function Show-InfoBox {
                     $lines += $currentLine
                     $currentLine = ""
                 }
-                
+
                 # Handle words longer than width by splitting them
                 if ($word.Length -gt $Width) {
                     $remaining = $word
@@ -108,18 +108,18 @@ function Show-InfoBox {
                 $currentLine += $word
             }
         }
-        
+
         # Add final line if not empty
         if ($currentLine -ne "") {
             $lines += $currentLine
         }
-        
+
         return $lines
     }
-    
+
     $titleLines = Format-TextToWidth -Text $Title -Width $contentWidth
     $messageLines = Format-TextToWidth -Text $Message -Width $contentWidth
-    
+
     # Determine box characters
     $hBorder = "-"
     $vBorder = "|"
@@ -127,7 +127,7 @@ function Show-InfoBox {
     $cornerTR = "+"
     $cornerBL = "+"
     $cornerBR = "+"
-    
+
     # Try to use theme border characters if available
     if ($theme.Table.ContainsKey("Chars")) {
         $borderChars = $theme.Table.Chars
@@ -138,36 +138,38 @@ function Show-InfoBox {
         $cornerBL = $borderChars.BottomLeft
         $cornerBR = $borderChars.BottomRight
     }
-    
+
     # Draw top border
     Write-ColorText "$cornerTL$($hBorder * ($boxWidth - 2))$cornerTR" -ForegroundColor $color
-    
+
     # Draw title if provided
     if ($titleLines.Count -gt 0) {
         foreach ($line in $titleLines) {
             $padding = $contentWidth - $line.Length
             $leftPad = [Math]::Floor($padding / 2)
             $rightPad = $padding - $leftPad
-            
+
             Write-ColorText "$vBorder " -ForegroundColor $color -NoNewline
             Write-ColorText "$(" " * $leftPad)$line$(" " * $rightPad)" -ForegroundColor $color -NoNewline
             Write-ColorText " $vBorder" -ForegroundColor $color
         }
-        
+
         # Draw separator
         Write-ColorText "$vBorder$($hBorder * ($boxWidth - 2))$vBorder" -ForegroundColor $color
     }
-    
+
     # Draw message
     foreach ($line in $messageLines) {
         Write-ColorText "$vBorder " -ForegroundColor $color -NoNewline
         Write-ColorText $line.PadRight($contentWidth) -ForegroundColor $color -NoNewline
         Write-ColorText " $vBorder" -ForegroundColor $color
     }
-    
+
     # Draw bottom border
     Write-ColorText "$cornerBL$($hBorder * ($boxWidth - 2))$cornerBR" -ForegroundColor $color
-}# ProjectTracker.Core.psm1
+}
+
+# ProjectTracker.Core.psm1
 # Core functionality for Project Tracker application
 # Includes configuration, error handling, logging, data access, and display functions
 
@@ -218,92 +220,92 @@ $script:borderPresets = @{
 
     # Light Box - standard Unicode box drawing
     LightBox = @{
-        Horizontal = "─"
-        Vertical = "│"
-        TopLeft = "┌"
-        TopRight = "┐"
-        BottomLeft = "└"
-        BottomRight = "┘"
-        LeftJunction = "├"
-        RightJunction = "┤"
-        TopJunction = "┬"
-        BottomJunction = "┴"
-        CrossJunction = "┼"
+        Horizontal = "-"
+        Vertical = "|"
+        TopLeft = "+"
+        TopRight = "+"
+        BottomLeft = "+"
+        BottomRight = "+"
+        LeftJunction = "+"
+        RightJunction = "+"
+        TopJunction = "+"
+        BottomJunction = "+"
+        CrossJunction = "+"
     }
 
     # Heavy Box - bold lines
     HeavyBox = @{
-        Horizontal = "━"
-        Vertical = "┃"
-        TopLeft = "┏"
-        TopRight = "┓"
-        BottomLeft = "┗"
-        BottomRight = "┛"
-        LeftJunction = "┣"
-        RightJunction = "┫"
-        TopJunction = "┳"
-        BottomJunction = "┻"
-        CrossJunction = "╋"
+        Horizontal = "="
+        Vertical = "|"
+        TopLeft = "+"
+        TopRight = "+"
+        BottomLeft = "+"
+        BottomRight = "+"
+        LeftJunction = "+"
+        RightJunction = "+"
+        TopJunction = "+"
+        BottomJunction = "+"
+        CrossJunction = "+"
     }
 
     # Double Line - classic double borders
     DoubleLine = @{
-        Horizontal = "═"
-        Vertical = "║"
-        TopLeft = "╔"
-        TopRight = "╗"
-        BottomLeft = "╚"
-        BottomRight = "╝"
-        LeftJunction = "╠"
-        RightJunction = "╣"
-        TopJunction = "╦"
-        BottomJunction = "╩"
-        CrossJunction = "╬"
+        Horizontal = "="
+        Vertical = "|"
+        TopLeft = "+"
+        TopRight = "+"
+        BottomLeft = "+"
+        BottomRight = "+"
+        LeftJunction = "+"
+        RightJunction = "+"
+        TopJunction = "+"
+        BottomJunction = "+"
+        CrossJunction = "+"
     }
 
     # Rounded - softer corners
     Rounded = @{
-        Horizontal = "─"
-        Vertical = "│"
-        TopLeft = "╭"
-        TopRight = "╮"
-        BottomLeft = "╰"
-        BottomRight = "╯"
-        LeftJunction = "├"
-        RightJunction = "┤"
-        TopJunction = "┬"
-        BottomJunction = "┴"
-        CrossJunction = "┼"
+        Horizontal = "-"
+        Vertical = "|"
+        TopLeft = "/"
+        TopRight = "\\"
+        BottomLeft = "\\"
+        BottomRight = "/"
+        LeftJunction = "+"
+        RightJunction = "+"
+        TopJunction = "+"
+        BottomJunction = "+"
+        CrossJunction = "+"
     }
 
     # Block - solid blocks
     Block = @{
-        Horizontal = "█"
-        Vertical = "█"
-        TopLeft = "█"
-        TopRight = "█"
-        BottomLeft = "█"
-        BottomRight = "█"
-        LeftJunction = "█"
-        RightJunction = "█"
-        TopJunction = "█"
-        BottomJunction = "█"
-        CrossJunction = "█"
+        Horizontal = "#"
+        Vertical = "#"
+        TopLeft = "#"
+        TopRight = "#"
+        BottomLeft = "#"
+        BottomRight = "#"
+        LeftJunction = "#"
+        RightJunction = "#"
+        TopJunction = "#"
+        BottomJunction = "#"
+        CrossJunction = "#"
     }
 
     # Neon - for cyberpunk neon effect
     Neon = @{
-        Horizontal = "─"
-        Vertical = "│"
-        TopLeft = "◢"
-        TopRight = "◣"
-        BottomLeft = "◥"
-        BottomRight = "◤"
-        LeftJunction = "├"
-        RightJunction = "┤"
-        TopJunction = "┬"
-        BottomJunction = "┴"
-        CrossJunction = "┼"
+        Horizontal = "-"
+        Vertical = "|"
+        TopLeft = "/"
+        TopRight = "\\"
+        BottomLeft = "\\"
+        BottomRight = "/"
+        LeftJunction = "+"
+        RightJunction = "+"
+        TopJunction = "+"
+        BottomJunction = "+"
+        CrossJunction = "+"
     }
 }
 
@@ -319,31 +321,31 @@ $script:headerPresets = @{
     # Double - double-line borders
     Double = @{
         Style = "Double"
-        BorderChar = "═"
-        Corners = "╔╗╚╝"
+        BorderChar = "="
+        Corners = "++++"
     }
 
     # Gradient - gradient top border
     Gradient = @{
         Style = "Gradient"
-        BorderChar = "═"
-        Corners = "╔╗╚╝"
-        GradientChars = "█▓▒░"
+        BorderChar = "="
+        Corners = "++++"
+        GradientChars = "#:. "
     }
 
     # Minimal - minimal borders
     Minimal = @{
         Style = "Minimal"
-        BorderChar = "─"
-        Corners = "╭╮╰╯"
+        BorderChar = "-"
+        Corners = "/\\\/"
     }
 
     # Neon - cyberpunk neon effect
     Neon = @{
         Style = "Gradient"
-        BorderChar = "═"
-        Corners = "◢◣◥◤"
-        GradientChars = "▒░  "
+        BorderChar = "="
+        Corners = "/\\\/"
+        GradientChars = ".:  "
     }
 }
 
@@ -389,7 +391,7 @@ $script:defaultTheme = @{
 # Built-in themes
 $script:themePresets = @{
     Default = $script:defaultTheme
-    
+
     # RetroWave theme - magenta/cyan with black background
     RetroWave = @{
         Name = "RetroWave"
@@ -418,17 +420,17 @@ $script:themePresets = @{
         }
         Headers = $script:headerPresets.Gradient.Clone()
         Menu = @{
-            SelectedPrefix = "►"
+            SelectedPrefix = ">"
             UnselectedPrefix = " "
         }
         ProgressBar = @{
-            FilledChar = "█"
-            EmptyChar = "▒"
+            FilledChar = "#"
+            EmptyChar = "."
             LeftCap = "["
             RightCap = "]"
         }
     }
-    
+
     # NeonCyberpunk theme
     NeonCyberpunk = @{
         Name = "NeonCyberpunk"
@@ -457,17 +459,17 @@ $script:themePresets = @{
         }
         Headers = $script:headerPresets.Neon.Clone()
         Menu = @{
-            SelectedPrefix = "▶"
+            SelectedPrefix = ">"
             UnselectedPrefix = " "
         }
         ProgressBar = @{
-            FilledChar = "█"
-            EmptyChar = "░"
-            LeftCap = "【"
-            RightCap = "】"
+            FilledChar = "#"
+            EmptyChar = "."
+            LeftCap = "["
+            RightCap = "]"
         }
     }
-    
+
     # Matrix theme - green on black
     Matrix = @{
         Name = "Matrix"
@@ -489,7 +491,7 @@ $script:themePresets = @{
             TableBorder = "DarkGreen"
         }
         Table = @{
-            Chars = @{ 
+            Chars = @{
                 Horizontal = "="
                 Vertical = "|"
                 TopLeft = "["
@@ -566,17 +568,17 @@ function Get-AppConfig {
         NotesFile = "notes.csv"
         CommandsFile = "commands.csv"
         LogFile = "project-tracker.log"
-        
+
         # User settings
         LoggingEnabled = $true
         LogLevel = "INFO"  # DEBUG, INFO, WARNING, ERROR
         DefaultTheme = "Default"
         DisplayDateFormat = "MM/dd/yyyy"
         CalendarStartDay = [DayOfWeek]::Monday
-        
+
         # Project settings
         DefaultProjectStatus = "Active"
-        
+
         # Table display options
         TableOptions = @{
             # Fixed column widths
@@ -603,7 +605,7 @@ function Get-AppConfig {
                 FullProjectName = 30
                 ClosedDate = 12
             }
-            
+
             # Column alignments
             Alignments = @{
                 ID = "Right"
@@ -659,22 +661,22 @@ function Get-AppConfig {
         "DueDate", "BFDate", "CumulativeHrs", "Note", "ProjFolder",
         "ClosedDate", "Status"
     )
-    
+
     $finalConfig.TodosHeaders = @(
-        "ID", "Nickname", "TaskDescription", "Importance", "DueDate", 
+        "ID", "Nickname", "TaskDescription", "Importance", "DueDate",
         "Status", "CreatedDate", "CompletedDate"
     )
-    
+
     $finalConfig.TimeHeaders = @(
         "EntryID", "Date", "WeekStartDate", "Nickname", "ID1", "ID2",
-        "Description", "MonHours", "TueHours", "WedHours", "ThuHours", 
+        "Description", "MonHours", "TueHours", "WedHours", "ThuHours",
         "FriHours", "SatHours", "SunHours", "TotalHours"
     )
-    
+
     $finalConfig.NotesHeaders = @(
         "NoteID", "Nickname", "DateCreated", "Title", "Content", "Tags"
     )
-    
+
     $finalConfig.CommandsHeaders = @(
         "CommandID", "Name", "Description", "CommandText", "DateCreated", "Tags"
     )
@@ -705,7 +707,7 @@ function Save-AppConfig {
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$Config,
-        
+
         [Parameter(Mandatory=$false)]
         [string]$ConfigFile = $null
     )
@@ -729,10 +731,10 @@ function Save-AppConfig {
     # Save configuration
     try {
         $Config | ConvertTo-Json -Depth 5 | Out-File -FilePath $ConfigFile -Encoding utf8 -Force
-        
+
         # Update cache
         $script:configCache = $Config
-        
+
         return $true
     } catch {
         Write-Warning "Failed to save configuration to $ConfigFile. Error: $($_.Exception.Message)"
@@ -761,7 +763,7 @@ function Merge-Hashtables {
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$BaseTable,
-        
+
         [Parameter(Mandatory=$true)]
         [hashtable]$OverrideTable
     )
@@ -827,17 +829,17 @@ function Handle-Error {
     param(
         [Parameter(Mandatory=$true)]
         [System.Management.Automation.ErrorRecord]$ErrorRecord,
-        
+
         [Parameter(Mandatory=$false)]
         [string]$Context = "Operation",
-        
+
         [Parameter(Mandatory=$false)]
         [switch]$Continue,
-        
+
         [Parameter(Mandatory=$false)]
         [switch]$Silent
     )
-    
+
     # Extract error information
     $exception = $ErrorRecord.Exception
     $message = $exception.Message
@@ -845,7 +847,7 @@ function Handle-Error {
     $errorCategory = $ErrorRecord.CategoryInfo.Category
     $errorId = $ErrorRecord.FullyQualifiedErrorId
     $position = $ErrorRecord.InvocationInfo.PositionMessage
-    
+
     # Build detailed error message
     $detailedMessage = @"
 Error in $Context
@@ -856,7 +858,7 @@ Position: $position
 Stack Trace:
 $scriptStackTrace
 "@
-    
+
     # Log error if logging is available
     try {
         Write-AppLog -Message "ERROR in $Context - $message" -Level ERROR
@@ -865,7 +867,7 @@ $scriptStackTrace
         # Fallback if logging fails
         Write-Warning "Failed to log error: $($_.Exception.Message)"
     }
-    
+
     # Display error to console unless silent
     if (-not $Silent) {
         # Use themed output if available
@@ -879,14 +881,14 @@ $scriptStackTrace
         } catch {
             # Fallback if themed output fails
             Write-Host "ERROR in $Context - $message" -ForegroundColor Red
-            
+
             # Show detailed information in debug scenarios
             if ($VerbosePreference -eq 'Continue' -or $DebugPreference -eq 'Continue') {
                 Write-Host $detailedMessage -ForegroundColor DarkGray
             }
         }
     }
-    
+
     # Terminate execution unless Continue is specified
     if (-not $Continue) {
         # Use throw to preserve the original error
@@ -921,32 +923,32 @@ function Invoke-WithErrorHandling {
     param(
         [Parameter(Mandatory=$true)]
         [scriptblock]$ScriptBlock,
-        
+
         [Parameter(Mandatory=$false)]
         [string]$ErrorContext = "Operation",
-        
+
         [Parameter(Mandatory=$false)]
         [switch]$Continue,
-        
+
         [Parameter(Mandatory=$false)]
         [switch]$Silent,
-        
+
         [Parameter(Mandatory=$false)]
         [object]$DefaultValue = $null
     )
-    
+
     try {
         # Execute the script block
         return & $ScriptBlock
     } catch {
         # Handle the error
         Handle-Error -ErrorRecord $_ -Context $ErrorContext -Continue:$Continue -Silent:$Silent
-        
+
         # If Continue is specified, return the default value
         if ($Continue) {
             return $DefaultValue
         }
-        
+
         # This point is only reached if Continue is specified and Handle-Error doesn't terminate
     }
 }
@@ -977,15 +979,15 @@ function Write-AppLog {
     param(
         [Parameter(Mandatory=$true)]
         [string]$Message,
-        
+
         [Parameter(Mandatory=$false)]
         [ValidateSet("DEBUG", "INFO", "WARNING", "ERROR")]
         [string]$Level = "INFO",
-        
+
         [Parameter(Mandatory=$false)]
         [hashtable]$ConfigObject = $null
     )
-    
+
     # Define log level priorities (for filtering)
     $levelPriorities = @{
         "DEBUG" = 0
@@ -993,7 +995,7 @@ function Write-AppLog {
         "WARNING" = 2
         "ERROR" = 3
     }
-    
+
     # Get configuration if not provided
     $config = $ConfigObject
     if ($null -eq $config) {
@@ -1009,25 +1011,25 @@ function Write-AppLog {
             }
         }
     }
-    
+
     # Check if logging is enabled
     if (-not $config.LoggingEnabled) {
         return
     }
-    
+
     # Check log level priority
     $configLevelPriority = $levelPriorities[$config.LogLevel]
     $currentLevelPriority = $levelPriorities[$Level]
-    
+
     if ($currentLevelPriority -lt $configLevelPriority) {
         # Skip logging if level is below configured threshold
         return
     }
-    
+
     # Prepare log entry
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "[$timestamp] [$Level] $Message"
-    
+
     # Ensure log directory exists
     $logDir = Split-Path -Parent $config.LogFullPath
     if (-not (Test-Path $logDir -PathType Container)) {
@@ -1040,17 +1042,17 @@ function Write-AppLog {
             return
         }
     }
-    
+
     # Simple log rotation - if file exceeds 5MB, rename it with timestamp
     if (Test-Path $config.LogFullPath) {
         try {
             $logFile = Get-Item $config.LogFullPath
-            
+
             # Check file size (5MB = 5242880 bytes)
             if ($logFile.Length -gt 5242880) {
                 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
                 $backupName = [System.IO.Path]::ChangeExtension($config.LogFullPath, "$timestamp.log")
-                
+
                 # Rename the existing log file
                 Rename-Item -Path $config.LogFullPath -NewName $backupName -Force
             }
@@ -1059,12 +1061,12 @@ function Write-AppLog {
             Write-Warning "Log rotation failed: $($_.Exception.Message)"
         }
     }
-    
+
     # Write to log file with retries for file locking issues
     $maxRetries = 3
     $retryDelay = 100  # milliseconds
     $success = $false
-    
+
     for ($retry = 0; $retry -lt $maxRetries -and -not $success; $retry++) {
         try {
             # Append to the log file
@@ -1103,25 +1105,25 @@ function Rotate-LogFile {
     param(
         [Parameter(Mandatory=$true)]
         [string]$LogFilePath,
-        
+
         [Parameter(Mandatory=$false)]
         [int]$MaxSizeBytes = 5242880  # 5MB default
     )
-    
+
     # Check if file exists
     if (-not (Test-Path $LogFilePath)) {
         Write-Verbose "Log file does not exist: $LogFilePath"
         return $false
     }
-    
+
     try {
         $logFile = Get-Item $LogFilePath
-        
+
         # Check file size
         if ($logFile.Length -gt $MaxSizeBytes) {
             $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
             $backupName = [System.IO.Path]::ChangeExtension($LogFilePath, "$timestamp.log")
-            
+
             # Rename the existing log file
             Rename-Item -Path $LogFilePath -NewName $backupName -Force
             Write-Verbose "Rotated log file: $LogFilePath -> $backupName"
@@ -1130,7 +1132,7 @@ function Rotate-LogFile {
     } catch {
         Write-Warning "Log rotation failed: $($_.Exception.Message)"
     }
-    
+
     return $false
 }
 
@@ -1160,18 +1162,18 @@ function Get-AppLogContent {
     param(
         [Parameter(Mandatory=$false)]
         [hashtable]$ConfigObject = $null,
-        
+
         [Parameter(Mandatory=$false)]
         [int]$Lines = 50,
-        
+
         [Parameter(Mandatory=$false)]
         [string]$Filter = "",
-        
+
         [Parameter(Mandatory=$false)]
         [ValidateSet("", "DEBUG", "INFO", "WARNING", "ERROR")]
         [string]$Level = ""
     )
-    
+
     # Get configuration if not provided
     $config = $ConfigObject
     if ($null -eq $config) {
@@ -1184,25 +1186,25 @@ function Get-AppLogContent {
             }
         }
     }
-    
+
     # Check if log file exists
     if (-not (Test-Path $config.LogFullPath)) {
         return @("Log file not found: $($config.LogFullPath)")
     }
-    
+
     try {
         # Get log content
         $content = Get-Content -Path $config.LogFullPath -Tail $Lines
-        
+
         # Apply filters if specified
         if (-not [string]::IsNullOrEmpty($Filter)) {
             $content = $content | Where-Object { $_ -match $Filter }
         }
-        
+
         if (-not [string]::IsNullOrEmpty($Level)) {
             $content = $content | Where-Object { $_ -match "\[$Level\]" }
         }
-        
+
         return $content
     } catch {
         return @("Error reading log file: $($_.Exception.Message)")

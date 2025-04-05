@@ -1,13 +1,13 @@
 # tracker.ps1 - Main entry point for Project Tracker
 
 # Get the script directory
-$scriptDir = $PSScriptRoot | Split-Path -Parent # Get parent dir of tracker.ps1
+$scriptDir = $PSScriptRoot # Use the directory where tracker.ps1 is located
 
 # --- Module Import ---
 # Use relative paths for development. Adjust if installing modules globally.
 try {
     Import-Module -Name "$scriptDir\Modules\ProjectTracker.Core\ProjectTracker.Core.psd1" -ErrorAction Stop
-    
+
     # Add other modules as they are created:
     # Import-Module -Name "$scriptDir\Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1" -ErrorAction Stop
     # Import-Module -Name "$scriptDir\Modules\ProjectTracker.Todos\ProjectTracker.Todos.psd1" -ErrorAction Stop
@@ -75,13 +75,13 @@ function Show-MainMenu {
 
     # Project Options
     $menuItems += @{ Type = "option"; Key = "1"; Text = "Project Management"; Function = { Show-ProjectMenu } }
-    
+
     # Todo Options
     $menuItems += @{ Type = "option"; Key = "2"; Text = "Todo Management"; Function = { Show-TodoMenu } }
-    
+
     # Time Tracking Options
     $menuItems += @{ Type = "option"; Key = "3"; Text = "Time Tracking"; Function = { Show-TimeTrackingMenu } }
-    
+
     # Theme Options
     $menuItems += @{ Type = "option"; Key = "8"; Text = "List Available Themes"; Function = { Show-ThemeList } }
     $menuItems += @{ Type = "option"; Key = "9"; Text = "Change Theme"; Function = { Change-Theme } }
@@ -117,56 +117,56 @@ function Show-TimeTrackingMenu {
 
 function Show-ThemeList {
     Render-Header -Title "Available Themes"
-    
+
     $themes = Get-AvailableThemes
-    
+
     if ($themes.Count -eq 0) {
         Write-ColorText "No themes available." -ForegroundColor $script:colors.Warning
         Read-Host "Press Enter to continue..."
         return
     }
-    
+
     $themeTable = @()
     foreach ($theme in $themes) {
         $themeTable += [PSCustomObject]@{
             Name = $theme.Name
             Type = $theme.Type
             Source = $theme.Source
-            Current = if ($theme.Name -eq (Get-CurrentTheme).Name) { "✓" } else { "" }
+            Current = if ($theme.Name -eq (Get-CurrentTheme).Name) { "*" } else { "" }
         }
     }
-    
+
     Show-Table -Data $themeTable -Columns @("Name", "Type", "Source", "Current")
-    
+
     # Log the action
     Write-AppLog "Listed available themes" -Level INFO
-    
+
     Read-Host "Press Enter to continue..."
 }
 
 function Change-Theme {
     Render-Header -Title "Change Theme"
-    
+
     $themes = Get-AvailableThemes
-    
+
     if ($themes.Count -eq 0) {
         Write-ColorText "No themes available." -ForegroundColor $script:colors.Warning
         Read-Host "Press Enter to continue..."
         return
     }
-    
+
     $menuItems = @()
-    
+
     $menuItems += @{
         Type = "header"
         Text = "Select Theme"
     }
-    
+
     $currentTheme = (Get-CurrentTheme).Name
-    
+
     foreach ($theme in $themes) {
         $isHighlighted = $theme.Name -eq $currentTheme
-        
+
         $menuItems += @{
             Type = "option"
             Key = $theme.Name
@@ -174,7 +174,7 @@ function Change-Theme {
             IsHighlighted = $isHighlighted
             Function = {
                 param([string]$ThemeName)
-                
+
                 if (Set-CurrentTheme -ThemeName $ThemeName) {
                     $colors = (Get-CurrentTheme).Colors
                     Write-ColorText "Theme changed to $ThemeName" -ForegroundColor $colors.Success
@@ -184,16 +184,16 @@ function Change-Theme {
                     Write-ColorText "Failed to change theme to $ThemeName" -ForegroundColor $colors.Error
                     Write-AppLog "Failed to change theme to $ThemeName" -Level ERROR
                 }
-                
+
                 Read-Host "Press Enter to continue..."
             }.GetNewClosure()
         }
     }
-    
+
     $menuItems += @{
         Type = "separator"
     }
-    
+
     $menuItems += @{
         Type = "option"
         Key = "0"
@@ -201,6 +201,6 @@ function Change-Theme {
         Function = { return $null }
         IsExit = $true
     }
-    
+
     return Show-DynamicMenu -Title "Select Theme" -MenuItems $menuItems
 }
