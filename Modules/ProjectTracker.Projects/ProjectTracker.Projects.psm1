@@ -719,3 +719,173 @@ function Remove-TrackerProject {
     
     Write-AppLog "Deleting project: $Nickname" -Level INFO
     Render-Header "Delete Project"
+
+##Start of missing content
+# Add this function to the ProjectTracker.Projects.psm1 file
+
+<#
+.SYNOPSIS
+    Displays the project management menu.
+.DESCRIPTION
+    Shows a menu with options for managing projects.
+.EXAMPLE
+    Show-ProjectMenu
+.OUTPUTS
+    Boolean indicating if the menu should exit
+#>
+function Show-ProjectMenu {
+    [CmdletBinding()]
+    param()
+    
+    $menuItems = @()
+    
+    $menuItems += @{
+        Type = "header"
+        Text = "Project Management"
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "1"
+        Text = "List Active Projects"
+        Function = {
+            Show-ProjectList
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "2"
+        Text = "List All Projects"
+        Function = {
+            Show-ProjectList -IncludeAll
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "3"
+        Text = "Create New Project"
+        Function = {
+            New-TrackerProject
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "4"
+        Text = "Update Project"
+        Function = {
+            # First list projects
+            $projects = Show-ProjectList -IncludeAll
+            
+            if ($projects.Count -eq 0) {
+                return $null
+            }
+            
+            # Prompt for nickname
+            $nickname = Read-UserInput -Prompt "Enter project nickname to update (or 0 to cancel)"
+            
+            if ($nickname -eq "0") {
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Update the project
+            Update-TrackerProject -Nickname $nickname
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "5"
+        Text = "Change Project Status"
+        Function = {
+            # First list projects
+            $projects = Show-ProjectList -IncludeAll
+            
+            if ($projects.Count -eq 0) {
+                return $null
+            }
+            
+            # Prompt for nickname
+            $nickname = Read-UserInput -Prompt "Enter project nickname to change status (or 0 to cancel)"
+            
+            if ($nickname -eq "0") {
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Prompt for status
+            $statusItems = @()
+            $statusItems += @{ Type = "header"; Text = "Select Status" }
+            $statusItems += @{ Type = "option"; Key = "1"; Text = "Active"; Function = { return "Active" } }
+            $statusItems += @{ Type = "option"; Key = "2"; Text = "On Hold"; Function = { return "On Hold" } }
+            $statusItems += @{ Type = "option"; Key = "3"; Text = "Closed"; Function = { return "Closed" } }
+            $statusItems += @{ Type = "separator" }
+            $statusItems += @{ Type = "option"; Key = "0"; Text = "Cancel"; Function = { return $null }; IsExit = $true }
+            
+            $status = Show-DynamicMenu -Title "Change Project Status" -MenuItems $statusItems
+            
+            if ($null -eq $status) {
+                Write-ColorText "Status change cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Update the project status
+            Set-TrackerProjectStatus -Nickname $nickname -Status $status
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "6"
+        Text = "Delete Project"
+        Function = {
+            # First list projects
+            $projects = Show-ProjectList -IncludeAll
+            
+            if ($projects.Count -eq 0) {
+                return $null
+            }
+            
+            # Prompt for nickname
+            $nickname = Read-UserInput -Prompt "Enter project nickname to DELETE (or 0 to cancel)"
+            
+            if ($nickname -eq "0") {
+                Write-ColorText "Deletion cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Delete the project
+            Remove-TrackerProject -Nickname $nickname
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "separator"
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "0"
+        Text = "Back to Main Menu"
+        Function = { return $true }
+        IsExit = $false  # Changed to false to prevent exiting application
+    }
+    
+    return Show-DynamicMenu -Title "Project Management" -MenuItems $menuItems
+}
+
+# Ensure this is in the Export-ModuleMember line at the end of the file:
+# Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, Update-TrackerProjectHours, Show-ProjectMenu
