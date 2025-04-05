@@ -204,3 +204,24 @@ function Change-Theme {
 
     return Show-DynamicMenu -Title "Select Theme" -MenuItems $menuItems
 }
+
+# --- Main Execution ---
+
+# Initialize the application
+if (-not (Initialize-Application)) {
+    Write-Host "Failed to initialize application. Exiting..." -ForegroundColor Red
+    exit 1
+}
+
+# Set global ANSI override if specified
+if ($disableAnsi) {
+    $global:FORCE_DISABLE_ANSI = $true
+}
+
+# Main application loop
+$exitRequested = $false
+while (-not $exitRequested) {
+    $exitRequested = Show-MainMenu
+}
+
+Write-Host "Thank you for using Project Tracker!" -ForegroundColor Cyan
