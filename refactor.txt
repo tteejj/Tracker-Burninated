@@ -1,0 +1,292 @@
+Purpose: describe the process of restructuring your Project Tracker files into the proper PowerShell module format, aligning with the Addendum, and updating the Guide document.
+
+1. Create New Directory Structure: Done/Accomplished 
+	mkdir ProjectTracker
+cd ProjectTracker
+
+# Make the Modules directory and subdirectories
+mkdir Modules
+mkdir Modules\ProjectTracker.Core
+mkdir Modules\ProjectTracker.Projects
+mkdir Modules\ProjectTracker.Todos
+# Add others later: mkdir Modules\ProjectTracker.TimeTracking, etc.
+
+# Make other necessary directories
+mkdir Themes
+mkdir Data # For runtime data like CSVs, config.json, log
+mkdir tests # For Pester tests later
+# mkdir templates # If you want to keep the template
+
+# Move existing files/dirs to new locations
+# Assuming your source .txt files are temporarily in the root ProjectTracker dir
+Move-Item .\tracker.txt .\tracker.ps1 # Rename and place tracker.ps1
+# If you have existing themes, move them: Move-Item .\themes\* .\Themes\
+
+
+2.Create Core Module Manifest (.psd1): PARTIAL - need GUID (how is one created?)
+Create the file Modules\ProjectTracker.Core\ProjectTracker.Core.psd1 with the following content. Generate a new GUID for the GUID field.
+
+
+3. Create Core Module Implementation (.psm1):
+Create the file Modules\ProjectTracker.Core\ProjectTracker.Core.psm1.
+
+Copy ALL content from the following source files into this single ProjectTracker.Core.psm1 file, in a logical order (e.g., variables first, then config functions, error functions, logging, data, date, helpers, theme):
+
+core-module.txt (This is the primary source, but it's incomplete based on the Guide)
+
+config.txt (Contains functions like Get-AppConfig, Save-AppConfig, Merge-Hashtables)
+
+error-handling.txt (Contains Handle-Error, Invoke-WithErrorHandling)
+
+logging.txt (Contains Write-AppLog, Rotate-LogFile, Get-AppLogContent)
+
+data-functions.txt (Contains Ensure-DirectoryExists, Get-EntityData, Save-EntityData, Update-CumulativeHours, Initialize-DataEnvironment, Get-EntityById, Update-EntityById, Remove-EntityById, Create-Entity)
+
+date-functions.txt (Contains date parsing, conversion, relative descriptions, input, week/month functions)
+
+helper-functions.txt (Contains Read-UserInput, Confirm-Action, New-ID, Convert-PriorityToInt, etc.)
+
+theme-engine.txt (Contains theme variables, presets, theme loading, color/ANSI functions, UI rendering functions like Write-ColorText, Render-Header, Show-Table, etc.)
+
+Remove Redundant param() blocks: The original core-module.txt didn't have a top-level param(), which is good. Ensure no top-level param() block exists in the final .psm1.
+
+Remove Redundant Exports: Delete any Export-ModuleMember lines within the copied code sections (they might exist at the end of the individual lib/*.txt files).
+
+Add Final Export: Add the single comprehensive Export-ModuleMember command at the very end of ProjectTracker.Core.psm1:
+
+# At the VERY END of Modules\ProjectTracker.Core\ProjectTracker.Core.psm1
+Export-ModuleMember -Function Get-AppConfig, Save-AppConfig, Handle-Error, Invoke-WithErrorHandling, Write-AppLog, Rotate-LogFile, Get-AppLogContent, Ensure-DirectoryExists, Get-EntityData, Save-EntityData, Update-CumulativeHours, Initialize-DataEnvironment, Get-EntityById, Update-EntityById, Remove-EntityById, Create-Entity, Parse-DateInput, Convert-DisplayDateToInternal, Convert-InternalDateToDisplay, Get-RelativeDateDescription, Get-DateInput, Get-FirstDayOfWeek, Get-WeekNumber, Get-MonthName, Get-RelativeWeekDescription, Get-MonthDateRange, Read-UserInput, Confirm-Action, New-MenuItems, Show-Confirmation, Get-EnvironmentVariable, Join-PathSafely, Get-UniqueFileName, ConvertTo-ValidFileName, Get-TempFilePath, Convert-PriorityToInt, New-ID, New-RandomPassword, Convert-BytesToHumanReadable, Find-SubstringPosition, Convert-ToSlug, Initialize-ThemeEngine, Get-Theme, Set-CurrentTheme, Get-CurrentTheme, Get-AvailableThemes, Write-ColorText, Show-Table, Render-Header, Show-InfoBox, Show-ProgressBar, Show-DynamicMenu, Get-VisibleStringLength, Safe-TruncateString, Remove-AnsiCodes
+
+Review Internal Calls: Search within ProjectTracker.Core.psm1 for Get-Command ... -ErrorAction SilentlyContinue. Most of these checks were for detecting if other library functions were loaded. Since they are now all in the same module, these checks are likely unnecessary for internal calls. You can simplify the code by removing the checks and calling functions like Get-AppConfig, Write-AppLog, Write-ColorText, Handle-Error directly where needed within the Core module. Keep checks if they are truly optional external dependencies (which shouldn't be the case here). For example, Write-AppLog's check for Get-AppConfig can likely be removed as Get-AppConfig is guaranteed to be in the same module.
+
+
+4. Create Projects Module Manifest (.psd1):
+Create Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1. Generate a new GUID.
+
+# Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1
+@{
+    RootModule = 'ProjectTracker.Projects.psm1'
+    ModuleVersion = '1.0.0'
+    GUID = 'YOUR-NEW-GUID-HERE' # <-- IMPORTANT: Run New-Guid
+    Author = 'Your Name / Handle'
+    CompanyName = 'Unknown'
+    Copyright = '(c) 2024 Your Name / Handle. All rights reserved.'
+    Description = 'Handles creating, updating, listing, and managing projects for Project Tracker.'
+    PowerShellVersion = '5.1'
+
+    # Define modules needed by this module - IMPORTANT
+    RequiredModules = @(
+        @{ModuleName = 'ProjectTracker.Core'; ModuleVersion = '1.0.0'} # Depends on Core v1.0.0
+    )
+
+    # Functions to export from this module
+    FunctionsToExport = @(
+        'Show-ProjectList',
+        'New-TrackerProject',
+        'Update-TrackerProject',
+        'Remove-TrackerProject',
+        'Get-TrackerProject',
+        'Set-TrackerProjectStatus',
+        'Update-TrackerProjectHours' # Corresponds to UpdateHours action
+    )
+
+    CmdletsToExport = @()
+    VariablesToExport = @()
+    AliasesToExport = @()
+    PrivateData = @{ PSData = @{} }
+}
+
+5. Refactor Projects Module Implementation (.psm1):
+Create Modules\ProjectTracker.Projects\ProjectTracker.Projects.psm1.
+
+Copy Structure: Start by copying the content of projects-module.txt.
+
+Remove Top param(): Delete the entire top-level param(...) block that defines -Action, -DataPath, etc.
+
+Remove Dot-Sourcing: Delete the try/catch block that dot-sources the lib/ files. Dependencies are handled by the manifest.
+
+Remove Config/Theme Init: Delete the $script:AppConfig = ... and $script:currentTheme = ... initialization block. Config/Theme will be accessed via Core module functions (Get-AppConfig, Get-CurrentTheme) or potentially passed as parameters if needed.
+
+Refactor Actions to Functions:
+
+Rename Invoke-ListAction to Show-ProjectList. Define its parameters: function Show-ProjectList { param([switch]$IncludeAll) ... }.
+
+Rename Invoke-NewAction to New-TrackerProject. Define its parameters: function New-TrackerProject { param([hashtable]$ProjectData) ... }.
+
+Rename Invoke-UpdateAction to Update-TrackerProject. Define its parameters: function Update-TrackerProject { param([string]$Nickname, [hashtable]$ProjectData) ... }.
+
+Rename Invoke-DeleteAction to Remove-TrackerProject. Define its parameters: function Remove-TrackerProject { param([string]$Nickname) ... }.
+
+Rename Invoke-GetAction to Get-TrackerProject. Define its parameters: function Get-TrackerProject { param([string]$Nickname) ... }.
+
+Rename Invoke-ChangeStatusAction to Set-TrackerProjectStatus. Define its parameters: function Set-TrackerProjectStatus { param([string]$Nickname, [ValidateSet("Active", "On Hold", "Closed")][string]$Status) ... }.
+
+Rename Invoke-UpdateHoursAction to Update-TrackerProjectHours. Define its parameters: function Update-TrackerProjectHours { param([string]$Nickname) ... }.
+
+Update Internal Logic:
+
+Inside these new functions, replace direct use of $DataPath with constructing the path using (Get-AppConfig).ProjectsFullPath (or similar, calling the Core function).
+
+Replace direct use of $script:colors or theme elements with calls to (Get-CurrentTheme).Colors.<ColorName> or by calling Core UI functions (Render-Header, Show-Table, Write-ColorText, etc.) which handle themes internally.
+
+Ensure all calls to data functions (Get-EntityData, Save-EntityData), logging (Write-AppLog), error handling (Handle-Error), helpers (Read-UserInput), and UI (Render-Header, Show-Table) are made without checking Get-Command, as they are now guaranteed dependencies from the Core module.
+
+Remove the main switch($Action) block at the end.
+
+Remove exit 0 / exit 1. Functions should return relevant data (like the created/updated project object, or $true/$false for success/failure) or nothing (for display-only functions). Error conditions should ideally be handled via Handle-Error -Continue or by letting the exception bubble up if appropriate. Functions like Get-TrackerProject should return the project object or $null. Show-ProjectList might return the array of projects displayed or nothing. New/Update/Remove/Set functions typically return $true or $false.
+
+Add Final Export: Add Export-ModuleMember at the end:
+
+# At the VERY END of Modules\ProjectTracker.Projects\ProjectTracker.Projects.psm1
+Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, Update-TrackerProjectHours
+
+6. Refactor tracker.ps1:
+Open the tracker.ps1 file created in Step 1. Replace its content with the following structure, adapted from main-program.txt:
+
+# tracker.ps1 - Main entry point for Project Tracker
+
+# Get the script directory
+$scriptDir = $PSScriptRoot | Split-Path -Parent # Get parent dir of tracker.ps1
+
+# --- Module Import ---
+# Use relative paths for development. Adjust if installing modules globally.
+try {
+    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Core\ProjectTracker.Core.psd1" -ErrorAction Stop
+    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1" -ErrorAction Stop
+    # Add other modules as they are created:
+    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Todos\ProjectTracker.Todos.psd1" -ErrorAction Stop
+
+} catch {
+    Write-Host "ERROR: Failed to import required Project Tracker modules." -ForegroundColor Red
+    Write-Host "Details: $($_.Exception.Message)" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+# Process command line arguments (Keep this part if needed)
+$disableAnsi = $false
+# ... (argument parsing logic from original tracker.txt) ...
+if ($disableAnsi) {
+    # Find a way to signal this to the Core module if needed, perhaps via
+    # an exported Core function Set-AnsiEnabled $false, or handle at Write-ColorText
+    Write-Host "ANSI override requested (implementation specific)" -ForegroundColor Yellow
+}
+
+
+# --- Application Initialization ---
+function Initialize-Application {
+    try {
+        Write-AppLog "Initializing application..." -Level INFO
+
+        # Initialize Core components (Data Env, Theme)
+        Initialize-DataEnvironment # From Core Module
+        Initialize-ThemeEngine     # From Core Module
+
+        # Load config AFTER data env is initialized (in case config file needs creation)
+        $config = Get-AppConfig          # From Core Module
+
+        # Set theme based on config (Initialize-ThemeEngine might do this already, double-check its logic)
+        Set-CurrentTheme -ThemeName $config.DefaultTheme # From Core Module
+
+        Write-AppLog "Initialization complete. Using Theme: $($config.DefaultTheme)" -Level INFO
+        return $true
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Application Initialization"
+        return $false
+    }
+}
+
+# --- Main Menu Definition ---
+function Show-MainMenu {
+    # Define menu items using the new function call pattern
+    $menuItems = @()
+
+    $menuItems += @{ Type = "header"; Text = "Project Tracker" }
+
+    # Project Options
+    $menuItems += @{ Type = "option"; Key = "1"; Text = "List Active Projects"; Function = { Show-ProjectList } } # Call exported function
+    $menuItems += @{ Type = "option"; Key = "2"; Text = "List All Projects"; Function = { Show-ProjectList -IncludeAll } } # Call with parameter
+    $menuItems += @{ Type = "option"; Key = "3"; Text = "New Project"; Function = { New-TrackerProject } }
+    # Add Update/Delete/Status options here, potentially requiring a sub-menu or prompt for Nickname first
+
+    # Todo Options
+    $menuItems += @{ Type = "option"; Key = "4"; Text = "List Pending Todos"; Function = { Show-TodoList } } # Assumes Show-TodoList exists in Todos module
+    $menuItems += @{ Type = "option"; Key = "5"; Text = "New Todo"; Function = { New-TrackerTodoItem } }
+    # Add Complete/Update/Delete options here
+
+    # Theme Options
+    $menuItems += @{ Type = "option"; Key = "8"; Text = "List Available Themes"; Function = { Show-ThemeList } } # Using the function from main-program.txt adapted below
+    $menuItems += @{ Type = "option"; Key = "9"; Text = "Change Theme"; Function = { Change-Theme } } # Using the function from main-program.txt adapted below
+
+    # Add other options (Time, Calendar, etc.)
+
+    $menuItems += @{ Type = "separator" }
+    $menuItems += @{ Type = "option"; Key = "0"; Text = "Exit"; Function = { return $true }; IsExit = $true }
+
+    # Show menu using the Core module function
+    return Show-DynamicMenu -Title "Main Menu" -MenuItems $menuItems -Prompt "Select option:"
+}
+
+# --- UI Helper Functions (Adapted from main-program.txt) ---
+# These could potentially move into the Core module too, but fine here for now.
+
+function Show-ThemeList {
+    Render-Header -Title "Available Themes" # Core function
+    $themes = Get-AvailableThemes # Core function
+    # ... (rest of the logic from main-program.txt's Show-ThemeList, using Show-Table) ...
+    Show-Table -Data $themeTable -Columns @("Name", "Type", "Source", "Current") # Core function
+    Write-AppLog "Listed available themes" -Level INFO # Core function
+    Read-Host "Press Enter to continue..."
+}
+
+function Change-Theme {
+    Render-Header -Title "Change Theme" # Core function
+    $themes = Get-AvailableThemes # Core function
+    # ... (rest of the logic from main-program.txt's Change-Theme, using Show-DynamicMenu) ...
+    # Inside the Function scriptblock:
+    # Set-CurrentTheme -ThemeName $ThemeName # Core function
+    # Write-ColorText ... # Core function
+    # Write-AppLog ... # Core function
+}
+
+# --- Application Startup Logic ---
+function Start-Application {
+    if (-not (Initialize-Application)) {
+        Write-Host "CRITICAL: Initialization failed. Exiting." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    Write-AppLog "Application started" -Level INFO
+
+    while ($true) {
+        $exitRequested = Show-MainMenu
+        if ($exitRequested -eq $true) {
+            break
+        }
+    }
+
+    Write-AppLog "Application shutting down" -Level INFO
+}
+
+# --- Execute ---
+Start-Application
+Use code with caution.
+Powershell
+Phase 4: Refactor Todos Module
+
+Refactor Todos Module:
+Follow the exact same pattern as in Step 5, but using todos-module.txt as the source and creating Modules\ProjectTracker.Todos\ProjectTracker.Todos.psm1 and .psd1.
+
+Define exported functions like Show-TodoList, Show-FilteredTodoList, New-TrackerTodoItem, Update-TrackerTodoItem, Complete-TrackerTodoItem, Remove-TrackerTodoItem, Get-TrackerTodoItem.
+
+Ensure the .psd1 requires ProjectTracker.Core.
+
+Update logic to call Core functions.
+
+Remove -Action switch, top param(), dot-sourcing, etc.
+
+Add the final Export-ModuleMember line.
+
+Update tracker.ps1 to import this module and call its functions from the menu.
+
