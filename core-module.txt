@@ -1,0 +1,2686 @@
+# ProjectTracker.Core.psm1
+# Core functionality for Project Tracker application
+# Includes configuration, error handling, logging, data access, and display functions
+
+#region Module Variables
+
+# Configuration
+$script:configCache = $null
+
+# Theme Engine
+$script:currentTheme = $null
+$script:colors = @{}
+$script:useAnsiColors = $true
+$script:availableThemesCache = $null
+$script:stringLengthCache = @{}
+$script:ansiEscapePattern = [regex]'\x1b\[[0-9;]*[mK]'
+
+# ANSI color code mappings
+$script:ansiForegroundColors = @{
+    "Black" = "30"; "DarkRed" = "31"; "DarkGreen" = "32"; "DarkYellow" = "33";
+    "DarkBlue" = "34"; "DarkMagenta" = "35"; "DarkCyan" = "36"; "Gray" = "37";
+    "DarkGray" = "90"; "Red" = "91"; "Green" = "92"; "Yellow" = "93";
+    "Blue" = "94"; "Magenta" = "95"; "Cyan" = "96"; "White" = "97"
+}
+
+$script:ansiBackgroundColors = @{
+    "Black" = "40"; "DarkRed" = "41"; "DarkGreen" = "42"; "DarkYellow" = "43";
+    "DarkBlue" = "44"; "DarkMagenta" = "45"; "DarkCyan" = "46"; "Gray" = "47";
+    "DarkGray" = "100"; "Red" = "101"; "Green" = "102"; "Yellow" = "103";
+    "Blue" = "104"; "Magenta" = "105"; "Cyan" = "106"; "White" = "107"
+}
+
+# Theme presets and border styles
+# We'll define these in the theme engine section
+
+#endregion Module Variables
+
+#region Configuration Functions
+
+<#
+.SYNOPSIS
+    Gets the application configuration, merging defaults with user settings.
+.DESCRIPTION
+    Loads configuration from the config file if it exists, otherwise uses defaults.
+    Ensures all expected keys exist by merging with default configuration.
+    Calculates and adds derived paths based on configuration values.
+.PARAMETER ConfigFile
+    Optional path to a specific config file. If not specified, uses the default location.
+.EXAMPLE
+    $config = Get-AppConfig
+    $baseDataDir = $config.BaseDataDir
+.OUTPUTS
+    System.Collections.Hashtable - The complete configuration hashtable
+#>
+function Get-AppConfig {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [string]$ConfigFile = $null
+    )
+
+    # Return cached config if available
+    if ($null -ne $script:configCache) {
+        return $script:configCache
+    }
+
+    # Define default configuration
+    $defaultConfig = @{
+        # Core paths
+        BaseDataDir = Join-Path $env:LOCALAPPDATA "ProjectTrackerData"
+        ThemesDir = Join-Path $PSScriptRoot "..\..\Themes"
+        ProjectsFile = "projects.csv"
+        TodosFile = "todolist.csv"
+        TimeLogFile = "timetracking.csv"
+        NotesFile = "notes.csv"
+        CommandsFile = "commands.csv"
+        LogFile = "project-tracker.log"
+        
+        # User settings
+        LoggingEnabled = $true
+        LogLevel = "INFO"  # DEBUG, INFO, WARNING, ERROR
+        DefaultTheme = "Default"
+        DisplayDateFormat = "MM/dd/yyyy"
+        CalendarStartDay = [DayOfWeek]::Monday
+        
+        # Table display options
+        TableOptions = @{
+            # Fixed column widths
+            FixedWidths = @{
+                ID = 5
+                Nickname = 15
+                Task = 40
+                TaskDescription = 40
+                Note = 30
+                Priority = 10
+                Status = 10
+                Date = 12
+                Assigned = 12
+                Due = 12
+                BFDate = 12
+                CreatedDate = 12
+                Hrs = 8
+                Mon = 7
+                Tue = 7
+                Wed = 7
+                Thu = 7
+                Fri = 7
+                Total = 9
+                FullProjectName = 30
+                ClosedDate = 12
+            }
+            
+            # Column alignments
+            Alignments = @{
+                ID = "Right"
+                Hrs = "Right"
+                CumulativeHrs = "Right"
+                Mon = "Right"
+                Tue = "Right"
+                Wed = "Right"
+                Thu = "Right"
+                Fri = "Right"
+                Total = "Right"
+                DateAssigned = "Right"
+                DueDate = "Right"
+                BFDate = "Right"
+                CreatedDate = "Right"
+                Date = "Right"
+                ClosedDate = "Right"
+            }
+        }
+    }
+
+    # Determine config file path if not provided
+    if (-not $ConfigFile) {
+        $ConfigFile = Join-Path $defaultConfig.BaseDataDir "config.json"
+    }
+
+    # Load user configuration if exists
+    $userConfig = @{}
+    if (Test-Path $ConfigFile) {
+        try {
+            $userConfig = Get-Content -Path $ConfigFile -Raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+        } catch {
+            # Handle error loading config - log will come later
+            Write-Warning "Failed to load configuration from $ConfigFile. Using defaults. Error: $($_.Exception.Message)"
+            # We'll continue with default config
+        }
+    }
+
+    # Merge configurations (user settings override defaults)
+    $finalConfig = Merge-Hashtables -BaseTable $defaultConfig -OverrideTable $userConfig
+
+    # Calculate and add full paths
+    $finalConfig.ProjectsFullPath = Join-Path $finalConfig.BaseDataDir $finalConfig.ProjectsFile
+    $finalConfig.TodosFullPath = Join-Path $finalConfig.BaseDataDir $finalConfig.TodosFile
+    $finalConfig.TimeLogFullPath = Join-Path $finalConfig.BaseDataDir $finalConfig.TimeLogFile
+    $finalConfig.NotesFullPath = Join-Path $finalConfig.BaseDataDir $finalConfig.NotesFile
+    $finalConfig.CommandsFullPath = Join-Path $finalConfig.BaseDataDir $finalConfig.CommandsFile
+    $finalConfig.LogFullPath = Join-Path $finalConfig.BaseDataDir $finalConfig.LogFile
+
+    # Cache the configuration
+    $script:configCache = $finalConfig
+
+    return $finalConfig
+}
+
+<#
+.SYNOPSIS
+    Saves the application configuration to a JSON file.
+.DESCRIPTION
+    Saves the provided configuration hashtable to the specified file in JSON format.
+    Creates the directory if it doesn't exist.
+.PARAMETER Config
+    The configuration hashtable to save.
+.PARAMETER ConfigFile
+    Optional path to save the config file. If not specified, uses the path from Config.
+.EXAMPLE
+    $success = Save-AppConfig -Config $configObject
+.OUTPUTS
+    System.Boolean - True if saved successfully, False otherwise
+#>
+function Save-AppConfig {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [hashtable]$Config,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$ConfigFile = $null
+    )
+
+    # Determine config file path
+    if (-not $ConfigFile) {
+        $ConfigFile = Join-Path $Config.BaseDataDir "config.json"
+    }
+
+    # Ensure directory exists
+    $configDir = Split-Path -Parent $ConfigFile
+    if (-not (Test-Path $configDir -PathType Container)) {
+        try {
+            New-Item -Path $configDir -ItemType Directory -Force | Out-Null
+        } catch {
+            Write-Warning "Failed to create directory for config file: $($_.Exception.Message)"
+            return $false
+        }
+    }
+
+    # Save configuration
+    try {
+        $Config | ConvertTo-Json -Depth 5 | Out-File -FilePath $ConfigFile -Encoding utf8 -Force
+        
+        # Update cache
+        $script:configCache = $Config
+        
+        return $true
+    } catch {
+        Write-Warning "Failed to save configuration to $ConfigFile. Error: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Recursively merges two hashtables, with the override hashtable taking precedence.
+.DESCRIPTION
+    Creates a new hashtable by combining the base hashtable with the override hashtable.
+    If a key exists in both, the override value is used.
+    If a key in both has hashtable values, they are recursively merged.
+.PARAMETER BaseTable
+    The base hashtable containing default values.
+.PARAMETER OverrideTable
+    The override hashtable containing values that should take precedence.
+.EXAMPLE
+    $mergedHashtable = Merge-Hashtables -BaseTable $defaults -OverrideTable $userSettings
+.OUTPUTS
+    System.Collections.Hashtable - The merged hashtable
+#>
+function Merge-Hashtables {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [hashtable]$BaseTable,
+        
+        [Parameter(Mandatory=$true)]
+        [hashtable]$OverrideTable
+    )
+
+    # Create a new hashtable for the result
+    $result = @{}
+
+    # Copy all keys from base table
+    foreach ($key in $BaseTable.Keys) {
+        $result[$key] = $BaseTable[$key]
+    }
+
+    # Override or add keys from override table
+    foreach ($key in $OverrideTable.Keys) {
+        # If both tables have the key and both values are hashtables, recursively merge
+        if ($result.ContainsKey($key) -and $result[$key] -is [hashtable] -and $OverrideTable[$key] -is [hashtable]) {
+            $result[$key] = Merge-Hashtables -BaseTable $result[$key] -OverrideTable $OverrideTable[$key]
+        } else {
+            # Otherwise, use the override value
+            $result[$key] = $OverrideTable[$key]
+        }
+    }
+
+    return $result
+}
+
+#endregion Configuration Functions
+
+#region Error Handling Functions
+
+<#
+.SYNOPSIS
+    Handles errors consistently throughout the application.
+.DESCRIPTION
+    Centralizes error handling by providing logging, user feedback, and
+    optionally terminating execution. Integrates with the logging system
+    when available.
+.PARAMETER ErrorRecord
+    The PowerShell error record object.
+.PARAMETER Context
+    A string describing the operation that generated the error.
+.PARAMETER Continue
+    If specified, execution will continue after handling the error.
+    Otherwise, the function will terminate execution.
+.PARAMETER Silent
+    If specified, no console output will be generated.
+.EXAMPLE
+    try {
+        # Some operation that may fail
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Reading data file" -Continue
+    }
+.EXAMPLE
+    try {
+        # Critical operation
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Database initialization"
+        # Will not reach this point as the function will terminate execution
+    }
+#>
+function Handle-Error {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$Context = "Operation",
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$Continue,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$Silent
+    )
+    
+    # Extract error information
+    $exception = $ErrorRecord.Exception
+    $message = $exception.Message
+    $scriptStackTrace = $ErrorRecord.ScriptStackTrace
+    $errorCategory = $ErrorRecord.CategoryInfo.Category
+    $errorId = $ErrorRecord.FullyQualifiedErrorId
+    $position = $ErrorRecord.InvocationInfo.PositionMessage
+    
+    # Build detailed error message
+    $detailedMessage = @"
+Error in $Context
+Message: $message
+Category: $errorCategory
+Error ID: $errorId
+Position: $position
+Stack Trace:
+$scriptStackTrace
+"@
+    
+    # Log error if Write-AppLog is available
+    try {
+        Write-AppLog -Message "ERROR in $Context - $message" -Level ERROR
+        Write-AppLog -Message $detailedMessage -Level DEBUG
+    } catch {
+        # Fallback if logging fails
+        Write-Warning "Failed to log error: $($_.Exception.Message)"
+    }
+    
+    # Display error to console unless silent
+    if (-not $Silent) {
+        # Use themed output if available
+        try {
+            Show-InfoBox -Title "Error in $Context" -Message $message -Type Error
+        } catch {
+            # Fallback if themed output fails
+            Write-Host "ERROR in $Context - $message" -ForegroundColor Red
+            
+            # Show detailed information in debug scenarios
+            if ($VerbosePreference -eq 'Continue' -or $DebugPreference -eq 'Continue') {
+                Write-Host $detailedMessage -ForegroundColor DarkGray
+            }
+        }
+    }
+    
+    # Terminate execution unless Continue is specified
+    if (-not $Continue) {
+        # Use throw to preserve the original error
+        throw $ErrorRecord
+    }
+}
+
+<#
+.SYNOPSIS
+    Runs a script block with try/catch and standard error handling.
+.DESCRIPTION
+    Executes the provided script block in a try/catch block,
+    handling any errors using Handle-Error. Simplifies error handling
+    for common operations.
+.PARAMETER ScriptBlock
+    The script block to execute.
+.PARAMETER ErrorContext
+    A string describing the operation for error context.
+.PARAMETER Continue
+    If specified, execution will continue after handling any error.
+.PARAMETER Silent
+    If specified, no console output will be generated for errors.
+.PARAMETER DefaultValue
+    The value to return if an error occurs and Continue is specified.
+.EXAMPLE
+    $result = Invoke-WithErrorHandling -ScriptBlock { Get-Content -Path $filePath } -ErrorContext "Reading data file" -Continue -DefaultValue @()
+.OUTPUTS
+    Returns the output of the script block or the DefaultValue if an error occurs.
+#>
+function Invoke-WithErrorHandling {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$ScriptBlock,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$ErrorContext = "Operation",
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$Continue,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$Silent,
+        
+        [Parameter(Mandatory=$false)]
+        [object]$DefaultValue = $null
+    )
+    
+    try {
+        # Execute the script block
+        return & $ScriptBlock
+    } catch {
+        # Handle the error
+        Handle-Error -ErrorRecord $_ -Context $ErrorContext -Continue:$Continue -Silent:$Silent
+        
+        # If Continue is specified, return the default value
+        if ($Continue) {
+            return $DefaultValue
+        }
+        
+        # This point is only reached if Continue is specified and Handle-Error doesn't terminate
+    }
+}
+
+#endregion Error Handling Functions
+
+#region Logging Functions
+
+<#
+.SYNOPSIS
+    Writes a log entry to the application log file.
+.DESCRIPTION
+    Appends a timestamped, formatted log entry to the application log file.
+    Handles log rotation, file locking, and respects log level configuration.
+.PARAMETER Message
+    The message to log.
+.PARAMETER Level
+    The log level (DEBUG, INFO, WARNING, ERROR). Default is INFO.
+.PARAMETER ConfigObject
+    Optional configuration object. If not provided, will load using Get-AppConfig.
+.EXAMPLE
+    Write-AppLog -Message "Processing started" -Level INFO
+.EXAMPLE
+    Write-AppLog -Message "User input validation failed" -Level WARNING
+#>
+function Write-AppLog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Message,
+        
+        [Parameter(Mandatory=$false)]
+        [ValidateSet("DEBUG", "INFO", "WARNING", "ERROR")]
+        [string]$Level = "INFO",
+        
+        [Parameter(Mandatory=$false)]
+        [hashtable]$ConfigObject = $null
+    )
+    
+    # Define log level priorities (for filtering)
+    $levelPriorities = @{
+        "DEBUG" = 0
+        "INFO" = 1
+        "WARNING" = 2
+        "ERROR" = 3
+    }
+    
+    # Get configuration if not provided
+    $config = $ConfigObject
+    if ($null -eq $config) {
+        try {
+            $config = Get-AppConfig
+        } catch {
+            # Fallback to simple console output if config can't be loaded
+            Write-Warning "Failed to load configuration for logging. Using defaults."
+            $config = @{
+                LoggingEnabled = $true
+                LogLevel = "INFO"
+                LogFullPath = Join-Path $env:TEMP "project-tracker.log"
+            }
+        }
+    }
+    
+    # Check if logging is enabled
+    if (-not $config.LoggingEnabled) {
+        return
+    }
+    
+    # Check log level priority
+    $configLevelPriority = $levelPriorities[$config.LogLevel]
+    $currentLevelPriority = $levelPriorities[$Level]
+    
+    if ($currentLevelPriority -lt $configLevelPriority) {
+        # Skip logging if level is below configured threshold
+        return
+    }
+    
+    # Prepare log entry
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logEntry = "[$timestamp] [$Level] $Message"
+    
+    # Ensure log directory exists
+    $logDir = Split-Path -Parent $config.LogFullPath
+    if (-not (Test-Path $logDir -PathType Container)) {
+        try {
+            New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+        } catch {
+            # Can't create directory - fallback to console only
+            Write-Warning "Failed to create log directory: $($_.Exception.Message)"
+            Write-Host $logEntry
+            return
+        }
+    }
+    
+    # Simple log rotation - if file exceeds 5MB, rename it with timestamp
+    if (Test-Path $config.LogFullPath) {
+        try {
+            $logFile = Get-Item $config.LogFullPath
+            
+            # Check file size (5MB = 5242880 bytes)
+            if ($logFile.Length -gt 5242880) {
+                $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+                $backupName = [System.IO.Path]::ChangeExtension($config.LogFullPath, "$timestamp.log")
+                
+                # Rename the existing log file
+                Rename-Item -Path $config.LogFullPath -NewName $backupName -Force
+            }
+        } catch {
+            # If rotation fails, continue anyway but warn
+            Write-Warning "Log rotation failed: $($_.Exception.Message)"
+        }
+    }
+    
+    # Write to log file with retries for file locking issues
+    $maxRetries = 3
+    $retryDelay = 100  # milliseconds
+    $success = $false
+    
+    for ($retry = 0; $retry -lt $maxRetries -and -not $success; $retry++) {
+        try {
+            # Append to the log file
+            Add-Content -Path $config.LogFullPath -Value $logEntry -Encoding UTF8 -Force
+            $success = $true
+        } catch {
+            if ($retry -eq $maxRetries - 1) {
+                # Log to console as fallback on final retry
+                Write-Warning "Failed to write to log file after $maxRetries retries: $($_.Exception.Message)"
+                Write-Host $logEntry
+            } else {
+                # Wait before retrying
+                Start-Sleep -Milliseconds $retryDelay
+            }
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Rotates log files if they exceed a specified size.
+.DESCRIPTION
+    Checks the size of the specified log file and renames it with a timestamp
+    if it exceeds the maximum size. Used for manual log rotation.
+.PARAMETER LogFilePath
+    The path to the log file to check.
+.PARAMETER MaxSizeBytes
+    The maximum size in bytes before rotation. Default is 5MB.
+.EXAMPLE
+    Rotate-LogFile -LogFilePath "C:\logs\app.log" -MaxSizeBytes 10485760
+.OUTPUTS
+    System.Boolean - True if rotation occurred, False otherwise
+#>
+function Rotate-LogFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$LogFilePath,
+        
+        [Parameter(Mandatory=$false)]
+        [int]$MaxSizeBytes = 5242880  # 5MB default
+    )
+    
+    # Check if file exists
+    if (-not (Test-Path $LogFilePath)) {
+        Write-Verbose "Log file does not exist: $LogFilePath"
+        return $false
+    }
+    
+    try {
+        $logFile = Get-Item $LogFilePath
+        
+        # Check file size
+        if ($logFile.Length -gt $MaxSizeBytes) {
+            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+            $backupName = [System.IO.Path]::ChangeExtension($LogFilePath, "$timestamp.log")
+            
+            # Rename the existing log file
+            Rename-Item -Path $LogFilePath -NewName $backupName -Force
+            Write-Verbose "Rotated log file: $LogFilePath -> $backupName"
+            return $true
+        }
+    } catch {
+        Write-Warning "Log rotation failed: $($_.Exception.Message)"
+    }
+    
+    return $false
+}
+
+<#
+.SYNOPSIS
+    Gets the content of the application log file.
+.DESCRIPTION
+    Reads and returns the content of the application log file.
+    Useful for viewing logs within the application.
+.PARAMETER ConfigObject
+    Optional configuration object. If not provided, will load using Get-AppConfig.
+.PARAMETER Lines
+    The number of lines to return. Default is 50 (most recent lines).
+.PARAMETER Filter
+    Optional filter string to match against log entries.
+.PARAMETER Level
+    Optional log level filter.
+.EXAMPLE
+    Get-AppLogContent -Lines 100
+.EXAMPLE
+    Get-AppLogContent -Filter "error connecting to" -Level ERROR
+.OUTPUTS
+    System.String[] - The log file content
+#>
+function Get-AppLogContent {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [hashtable]$ConfigObject = $null,
+        
+        [Parameter(Mandatory=$false)]
+        [int]$Lines = 50,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$Filter = "",
+        
+        [Parameter(Mandatory=$false)]
+        [ValidateSet("", "DEBUG", "INFO", "WARNING", "ERROR")]
+        [string]$Level = ""
+    )
+    
+    # Get configuration if not provided
+    $config = $ConfigObject
+    if ($null -eq $config) {
+        try {
+            $config = Get-AppConfig
+        } catch {
+            # Create default config if Get-AppConfig fails
+            $config = @{
+                LogFullPath = Join-Path $env:TEMP "project-tracker.log"
+            }
+        }
+    }
+    
+    # Check if log file exists
+    if (-not (Test-Path $config.LogFullPath)) {
+        return @("Log file not found: $($config.LogFullPath)")
+    }
+    
+    try {
+        # Get log content
+        $content = Get-Content -Path $config.LogFullPath -Tail $Lines
+        
+        # Apply filters if specified
+        if (-not [string]::IsNullOrEmpty($Filter)) {
+            $content = $content | Where-Object { $_ -match $Filter }
+        }
+        
+        if (-not [string]::IsNullOrEmpty($Level)) {
+            $content = $content | Where-Object { $_ -match "\[$Level\]" }
+        }
+        
+        return $content
+    } catch {
+        return @("Error reading log file: $($_.Exception.Message)")
+    }
+}
+
+#endregion Logging Functions
+
+#region Date Functions
+
+<#
+.SYNOPSIS
+    Parses a date string in various formats to the internal storage format.
+.DESCRIPTION
+    Attempts to parse a date string in various common formats, returning
+    a standardized string in the internal storage format (YYYYMMDD by default).
+    Handles multiple input formats with consistent error handling.
+.PARAMETER InputDate
+    The date string to parse.
+.PARAMETER AllowEmptyForToday
+    If specified, returns today's date when input is empty.
+.PARAMETER DefaultFormat
+    The format to use for the output date string. Default is 'yyyyMMdd'.
+.PARAMETER DisplayFormat
+    The expected format for input dates when displayed to users.
+.EXAMPLE
+    $internalDate = Parse-DateInput -InputDate "4/15/2023" -AllowEmptyForToday
+.OUTPUTS
+    System.String - The parsed date in internal format, or "CANCEL" if user cancelled
+#>
+function Parse-DateInput {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [string]$InputDate,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$AllowEmptyForToday,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$DefaultFormat = "yyyyMMdd", # Default internal storage format
+        
+        [Parameter(Mandatory=$false)]
+        [string]$DisplayFormat = $null # Will be populated from config if null
+    )
+    
+    # Get display format from config if not provided
+    if ($null -eq $DisplayFormat) {
+        try {
+            $config = Get-AppConfig
+            $DisplayFormat = $config.DisplayDateFormat
+        } catch {
+            # Default if config not available
+            $DisplayFormat = "MM/dd/yyyy"
+        }
+    }
+    
+    # Handle empty input
+    if ([string]::IsNullOrWhiteSpace($InputDate)) {
+        if ($AllowEmptyForToday) {
+            return (Get-Date).ToString($DefaultFormat)
+        } else {
+            Write-Verbose "Date input cannot be empty."
+            return $null
+        }
+    }
+    
+    # Handle cancel input
+    if ($InputDate -in @("0", "exit", "cancel", "q", "quit")) {
+        return "CANCEL"
+    }
+    
+    # Try parsing with various common formats
+    $parsedDate = $null
+    $formatsToTry = @(
+        $DefaultFormat,        # Try internal format first
+        $DisplayFormat,        # Then display format
+        "M/d/yyyy",            # US short date (month/day/year)
+        "MM/dd/yyyy",          # US with leading zeros
+        "yyyy-MM-dd",          # ISO format
+        "dd/MM/yyyy",          # European format
+        "d-MMM-yyyy",          # Day-MonthName-Year
+        "yyyyMMdd"             # Compact format
+    )
+    
+    # Try each format until one succeeds
+    foreach ($format in $formatsToTry) {
+        try {
+            $parsedDate = [datetime]::ParseExact($InputDate, $format, [System.Globalization.CultureInfo]::InvariantCulture)
+            break # Stop on first successful parse
+        } catch {
+            $parsedDate = $null
+        }
+    }
+    
+    # If all specific formats failed, try general parsing
+    if ($null -eq $parsedDate) {
+        try {
+            $parsedDate = [datetime]::Parse($InputDate, [System.Globalization.CultureInfo]::InvariantCulture)
+        } catch {
+            # Try current culture as last resort
+            try {
+                $parsedDate = [datetime]::Parse($InputDate)
+            } catch {
+                Write-Verbose "Failed to parse date: $InputDate"
+                return $null
+            }
+        }
+    }
+    
+    # Return parsed date in internal format
+    if ($parsedDate -is [datetime]) {
+        return $parsedDate.ToString($DefaultFormat)
+    }
+    
+    # Should not reach here if parsing succeeded
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Converts a date from display format to internal format.
+.DESCRIPTION
+    Converts a date string from the display format to the internal storage format.
+.PARAMETER DisplayDate
+    The date string in display format.
+.PARAMETER InternalFormat
+    The format to use for the output date string. Default is 'yyyyMMdd'.
+.PARAMETER DisplayFormat
+    The format of the input date string. If not specified, uses the format from configuration.
+.EXAMPLE
+    $internalDate = Convert-DisplayDateToInternal -DisplayDate "4/15/2023"
+.OUTPUTS
+    System.String - The date in internal format, or null if conversion failed
+#>
+function Convert-DisplayDateToInternal {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$DisplayDate,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$InternalFormat = "yyyyMMdd",
+        
+        [Parameter(Mandatory=$false)]
+        [string]$DisplayFormat = $null
+    )
+    
+    # Get display format from config if not provided
+    if ($null -eq $DisplayFormat) {
+        try {
+            $config = Get-AppConfig
+            $DisplayFormat = $config.DisplayDateFormat
+        } catch {
+            # Default if config not available
+            $DisplayFormat = "MM/dd/yyyy"
+        }
+    }
+    
+    # Check for empty input
+    if ([string]::IsNullOrWhiteSpace($DisplayDate)) {
+        return $null
+    }
+    
+    # Try exact parsing with display format
+    try {
+        $parsedDate = [datetime]::ParseExact($DisplayDate, $DisplayFormat, [System.Globalization.CultureInfo]::InvariantCulture)
+        return $parsedDate.ToString($InternalFormat)
+    } catch {
+        # Fall back to general parsing if exact parse fails
+        return Parse-DateInput -InputDate $DisplayDate -DefaultFormat $InternalFormat
+    }
+}
+
+<#
+.SYNOPSIS
+    Converts a date from internal format to display format.
+.DESCRIPTION
+    Converts a date string from the internal storage format to the display format.
+.PARAMETER InternalDate
+    The date string in internal format (YYYYMMDD).
+.PARAMETER DisplayFormat
+    The format to use for the output date string. If not specified, uses the format from configuration.
+.PARAMETER InternalFormat
+    The format of the input date string. Default is 'yyyyMMdd'.
+.EXAMPLE
+    $displayDate = Convert-InternalDateToDisplay -InternalDate "20230415"
+.OUTPUTS
+    System.String - The date in display format, or empty string if conversion failed
+#>
+function Convert-InternalDateToDisplay {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$InternalDate,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$DisplayFormat = $null,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$InternalFormat = "yyyyMMdd"
+    )
+    
+    # Get display format from config if not provided
+    if ($null -eq $DisplayFormat) {
+        try {
+            $config = Get-AppConfig
+            $DisplayFormat = $config.DisplayDateFormat
+        } catch {
+            # Default if config not available
+            $DisplayFormat = "MM/dd/yyyy"
+        }
+    }
+    
+    # Check for empty input
+    if ([string]::IsNullOrWhiteSpace($InternalDate)) {
+        return ""
+    }
+    
+    # Try exact parsing with internal format
+    try {
+        $parsedDate = [datetime]::ParseExact($InternalDate, $InternalFormat, [System.Globalization.CultureInfo]::InvariantCulture)
+        return $parsedDate.ToString($DisplayFormat)
+    } catch {
+        try {
+            # Fallback to general parsing
+            $parsedDate = [datetime]::Parse($InternalDate)
+            return $parsedDate.ToString($DisplayFormat)
+        } catch {
+            Write-Verbose "Could not convert date '$InternalDate' to display format."
+            return $InternalDate # Return original if conversion fails
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets a relative description of a date compared to today.
+.DESCRIPTION
+    Returns a human-readable relative description of a date (e.g., "Today", "Tomorrow", "3 days ago").
+.PARAMETER Date
+    The date to describe.
+.PARAMETER ReferenceDate
+    The reference date to compare against. Default is today.
+.EXAMPLE
+    $description = Get-RelativeDateDescription -Date $dueDate
+.OUTPUTS
+    System.String - The relative date description
+#>
+function Get-RelativeDateDescription {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [datetime]$Date,
+        
+        [Parameter(Mandatory=$false)]
+        [datetime]$ReferenceDate = (Get-Date).Date # Compare against date part only
+    )
+    
+    # Calculate difference in days
+    $diff = ($Date.Date - $ReferenceDate).Days
+    
+    # Return appropriate description
+    if ($diff -eq 0) { return "Today" }
+    if ($diff -eq 1) { return "Tomorrow" }
+    if ($diff -eq -1) { return "Yesterday" }
+    if ($diff -gt 1 -and $diff -le 7) { return "In $diff days" }
+    if ($diff -lt -1 -and $diff -ge -7) { return "$([Math]::Abs($diff)) days ago" }
+    
+    # Get display format from config if available
+    $displayFormat = "MM/dd/yyyy" # Default
+    try {
+        $config = Get-AppConfig
+        $displayFormat = $config.DisplayDateFormat
+    } catch { 
+        # Use default if config not available
+    }
+    
+    # Return formatted date for anything further out
+    return $Date.ToString($displayFormat)
+}
+
+<#
+.SYNOPSIS
+    Gets a date input from the user with validation.
+.DESCRIPTION
+    Prompts the user for a date input with configurable options and validation.
+.PARAMETER PromptText
+    The text to display as a prompt.
+.PARAMETER DefaultValue
+    The default value to use if the user enters nothing.
+.PARAMETER AllowEmptyForToday
+    If specified, uses today's date when input is empty.
+.PARAMETER AllowCancel
+    If specified, allows the user to cancel by entering "0" or "cancel".
+.EXAMPLE
+    $dueDate = Get-DateInput -PromptText "Enter due date" -AllowEmptyForToday
+.OUTPUTS
+    System.String - The date in internal format, or null if the user cancelled
+#>
+function Get-DateInput {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$PromptText,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$DefaultValue = "",
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$AllowEmptyForToday,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$AllowCancel
+    )
+    
+    # Get colorized prompt if theme engine is available
+    $promptFunction = Get-Command "Write-ColorText" -ErrorAction SilentlyContinue
+    if ($null -eq $promptFunction) {
+        # Fallback to standard Write-Host if theme engine not available
+        $promptFunction = Get-Command "Write-Host" -ErrorAction SilentlyContinue
+    }
+    
+    # Loop until valid date or cancel
+    while ($true) {
+        # Display prompt
+        if ($null -ne $promptFunction) {
+            if ($DefaultValue -and -not $AllowEmptyForToday) {
+                & $promptFunction "$PromptText [Default: $(Convert-InternalDateToDisplay $DefaultValue)]: " -ForegroundColor Cyan -NoNewline
+            } else {
+                & $promptFunction "$PromptText$(if ($AllowEmptyForToday) { ' (Enter=Today)' }): " -ForegroundColor Cyan -NoNewline
+            }
+        }
+        
+        # Get input
+        $input = Read-Host
+        
+        # Handle empty input
+        if ([string]::IsNullOrWhiteSpace($input)) {
+            if ($AllowEmptyForToday) {
+                return (Get-Date).ToString("yyyyMMdd")
+            } elseif (-not [string]::IsNullOrEmpty($DefaultValue)) {
+                return $DefaultValue
+            } else {
+                Write-Host "Date cannot be empty." -ForegroundColor Red
+                continue
+            }
+        }
+        
+        # Handle cancel option
+        if ($AllowCancel -and $input -in @("0", "exit", "cancel", "q", "quit")) {
+            return $null
+        }
+        
+        # Parse date
+        $parsedDate = Parse-DateInput -InputDate $input
+        if ($parsedDate -eq "CANCEL" -and $AllowCancel) {
+            return $null
+        } elseif ($parsedDate) {
+            return $parsedDate
+        } else {
+            # Show error message on invalid input
+            $displayFormat = (Get-AppConfig).DisplayDateFormat
+            Write-Host "Invalid date format. Please use $displayFormat, or similar format." -ForegroundColor Red
+            
+            # Loop continues for another attempt
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets the first day of the week containing the specified date.
+.DESCRIPTION
+    Returns the date of the first day of the week containing the specified date,
+    based on the configured start day of the week.
+.PARAMETER Date
+    The reference date.
+.PARAMETER StartDay
+    The day of the week to consider as the start. Default from config or Monday.
+.EXAMPLE
+    $weekStart = Get-FirstDayOfWeek -Date (Get-Date)
+.OUTPUTS
+    System.DateTime - The date of the first day of the week
+#>
+function Get-FirstDayOfWeek {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [datetime]$Date,
+        
+        [Parameter(Mandatory=$false)]
+        [System.DayOfWeek]$StartDay = $null
+    )
+    
+    # Get start day from config if not provided
+    if ($null -eq $StartDay) {
+        try {
+            $config = Get-AppConfig
+            $StartDay = $config.CalendarStartDay
+        } catch {
+            # Default if config not available
+            $StartDay = [System.DayOfWeek]::Monday
+        }
+    }
+    
+    # Calculate days to subtract to get to start of week
+    $diff = [int]$Date.DayOfWeek - [int]$StartDay
+    if ($diff -lt 0) { $diff += 7 } # Wrap around for negative difference
+    
+    # Return the date of the first day of the week
+    return $Date.AddDays(-$diff)
+}
+
+<#
+.SYNOPSIS
+    Gets the ISO week number for a date.
+.DESCRIPTION
+    Calculates the ISO 8601 week number (1-53) for the specified date.
+.PARAMETER Date
+    The date to get the week number for.
+.EXAMPLE
+    $weekNumber = Get-WeekNumber -Date (Get-Date)
+.OUTPUTS
+    System.Int32 - The ISO week number
+#>
+function Get-WeekNumber {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [datetime]$Date
+    )
+    
+    # Use the .NET calendar to calculate the week number
+    $cal = [System.Globalization.CultureInfo]::InvariantCulture.Calendar
+    
+    # Get week of year using ISO rules (FirstFourDayWeek)
+    return $cal.GetWeekOfYear(
+        $Date,
+        [System.Globalization.CalendarWeekRule]::FirstFourDayWeek,
+        [System.DayOfWeek]::Monday
+    )
+}
+
+<#
+.SYNOPSIS
+    Gets the full month name for a month number.
+.DESCRIPTION
+    Returns the full name of the month for the specified month number (1-12).
+.PARAMETER Month
+    The month number (1-12).
+.EXAMPLE
+    $monthName = Get-MonthName -Month 9
+.OUTPUTS
+    System.String - The full month name
+#>
+function Get-MonthName {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [ValidateRange(1, 12)]
+        [int]$Month
+    )
+    
+    # Get the month name from the current culture
+    return (Get-Culture).DateTimeFormat.GetMonthName($Month)
+}
+
+#endregion Date Functions
+
+#region Data Functions
+
+<#
+.SYNOPSIS
+    Ensures a directory exists, creating it if necessary.
+.DESCRIPTION
+    Checks if the specified directory exists and creates it if it doesn't.
+    Returns $true if the directory exists or was created successfully, $false otherwise.
+.PARAMETER Path
+    The directory path to check or create.
+.EXAMPLE
+    if (Ensure-DirectoryExists -Path "C:\Data\Projects") {
+        # Directory exists or was created
+    }
+.OUTPUTS
+    System.Boolean - True if directory exists or was created, False otherwise
+#>
+function Ensure-DirectoryExists {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Path
+    )
+    
+    if (-not (Test-Path $Path -PathType Container)) {
+        try {
+            New-Item -ItemType Directory -Path $Path -Force | Out-Null
+            Write-Verbose "Created directory: $Path"
+            return $true
+        } catch {
+            return Invoke-WithErrorHandling -ScriptBlock {
+                throw $_
+            } -ErrorContext "Creating directory '$Path'" -Continue -DefaultValue $false
+        }
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Retrieves entity data from a CSV file with validation and error handling.
+.DESCRIPTION
+    Loads data from a CSV file, ensures required headers are present,
+    adds missing properties with default values, and handles various error conditions.
+    Returns an array of objects representing the data.
+.PARAMETER FilePath
+    The path to the CSV file.
+.PARAMETER RequiredHeaders
+    Array of header names that must be present in the file.
+.PARAMETER DefaultValues
+    Hashtable of default values for headers that might be missing.
+.PARAMETER CreateIfNotExists
+    If specified, creates the file with required headers if it doesn't exist.
+.EXAMPLE
+    $projects = Get-EntityData -FilePath $config.ProjectsFullPath -RequiredHeaders $projectHeaders -CreateIfNotExists
+.OUTPUTS
+    System.Array - Array of objects representing the data, or empty array if the file doesn't exist or has errors
+#>
+function Get-EntityData {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        
+        [Parameter(Mandatory=$false)]
+        [string[]]$RequiredHeaders,
+        
+        [Parameter(Mandatory=$false)]
+        [hashtable]$DefaultValues = @{},
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$CreateIfNotExists
+    )
+    
+    # Check if file exists
+    if (-not (Test-Path $FilePath)) {
+        Write-Verbose "File not found: '$FilePath'."
+        
+        if ($CreateIfNotExists -and $RequiredHeaders -and $RequiredHeaders.Count -gt 0) {
+            # Create directory if it doesn't exist
+            $directory = Split-Path -Parent $FilePath
+            if (-not (Ensure-DirectoryExists -Path $directory)) {
+                return @() # Couldn't create directory
+            }
+            
+            try {
+                # Create the file with headers
+                $RequiredHeaders -join "," | Out-File $FilePath -Encoding utf8
+                Write-Verbose "Created file with headers: '$FilePath'."
+                
+                # Log the creation
+                Write-AppLog "Created data file with headers: $FilePath" -Level INFO
+                
+                return @() # Return empty array as no data exists yet
+            } catch {
+                return Invoke-WithErrorHandling -ScriptBlock {
+                    throw $_
+                } -ErrorContext "Creating data file '$FilePath'" -Continue -DefaultValue @()
+            }
+        }
+        
+        return @() # Return empty array if file doesn't exist
+    }
+    
+    return Invoke-WithErrorHandling -ScriptBlock {
+        # Always wrap Import-Csv result in @() to ensure it's an array
+        $data = @(Import-Csv -Path $FilePath -Encoding UTF8)
+        
+        # Check and add missing headers/properties if needed
+        if ($RequiredHeaders -and $RequiredHeaders.Count -gt 0 -and $data.Count -gt 0) {
+            $currentHeaders = $data[0].PSObject.Properties.Name
+            $missingHeaders = $RequiredHeaders | Where-Object { $currentHeaders -notcontains $_ }
+            
+            if ($missingHeaders.Count -gt 0) {
+                Write-Verbose "File is missing columns: $($missingHeaders -join ', '). Adding them."
+                
+                foreach ($item in $data) {
+                    foreach ($header in $missingHeaders) {
+                        $defaultValue = if ($DefaultValues.ContainsKey($header)) { $DefaultValues[$header] } else { "" }
+                        Add-Member -InputObject $item -MemberType NoteProperty -Name $header -Value $defaultValue -Force
+                    }
+                }
+                
+                # Log the modification
+                Write-AppLog "Added missing columns to file: $FilePath" -Level INFO
+            }
+        }
+        
+        return $data
+    } -ErrorContext "Loading data from '$FilePath'" -Continue -DefaultValue @()
+}
+
+<#
+.SYNOPSIS
+    Saves entity data to a CSV file with error handling and backups.
+.DESCRIPTION
+    Saves an array of objects to a CSV file, creating a backup first,
+    ensuring the directory exists, and handling various error conditions.
+    Returns $true if the save was successful, $false otherwise.
+.PARAMETER Data
+    The array of objects to save.
+.PARAMETER FilePath
+    The path to the CSV file.
+.PARAMETER RequiredHeaders
+    Optional array of header names to include in the output (filters out other properties).
+.PARAMETER NoBackup
+    If specified, skips creating a backup of the existing file.
+.EXAMPLE
+    $success = Save-EntityData -Data $projects -FilePath $config.ProjectsFullPath -RequiredHeaders $projectHeaders
+.OUTPUTS
+    System.Boolean - True if the save was successful, False otherwise
+#>
+function Save-EntityData {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [array]$Data,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        
+        [Parameter(Mandatory=$false)]
+        [string[]]$RequiredHeaders,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$NoBackup
+    )
+    
+    $backupPath = "$FilePath.bak"
+    
+    return Invoke-WithErrorHandling -ScriptBlock {
+        # Create backup of existing file unless NoBackup is specified
+        if (-not $NoBackup -and (Test-Path $FilePath)) {
+            Copy-Item -Path $FilePath -Destination $backupPath -Force -ErrorAction Stop
+            Write-Verbose "Created backup of '$FilePath' at '$backupPath'."
+        }
+        
+        # Ensure directory exists
+        $directory = Split-Path -Parent $FilePath
+        if (-not (Ensure-DirectoryExists -Path $directory)) {
+            return $false # Couldn't create directory
+        }
+        
+        # Save data with the specified headers (if provided)
+        if ($RequiredHeaders -and $RequiredHeaders.Count -gt 0) {
+            $Data | Select-Object -Property $RequiredHeaders | Export-Csv -Path $FilePath -NoTypeInformation -Encoding UTF8
+        } else {
+            $Data | Export-Csv -Path $FilePath -NoTypeInformation -Encoding UTF8
+        }
+        
+        # Log the save
+        Write-AppLog "Saved data to file: $FilePath (Items: $($Data.Count))" -Level INFO
+        
+        return $true
+    } -ErrorContext "Saving data to '$FilePath'" -Continue -DefaultValue $false -ScriptBlock {
+        # Try to restore from backup if available
+        if (-not $NoBackup -and (Test-Path $backupPath)) {
+            try {
+                Copy-Item -Path $backupPath -Destination $FilePath -Force
+                Write-Verbose "Restored file from backup."
+                Write-AppLog "Restored file from backup after save error: $FilePath" -Level WARNING
+            } catch {
+                Write-Warning "Failed to restore backup for '$FilePath': $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Updates the cumulative hours for a project.
+.DESCRIPTION
+    Calculates and updates the cumulative hours for a project based on time entries.
+    Reads time entries, sums the hours, and updates the project's CumulativeHrs field.
+.PARAMETER Nickname
+    The project nickname to update.
+.PARAMETER Config
+    Optional configuration object.
+.EXAMPLE
+    Update-CumulativeHours -Nickname "WEBSITE"
+.OUTPUTS
+    System.Boolean - True if the update was successful, False otherwise
+#>
+function Update-CumulativeHours {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Nickname,
+        
+        [Parameter(Mandatory=$false)]
+        [hashtable]$Config = $null
+    )
+    
+    if ([string]::IsNullOrWhiteSpace($Nickname)) {
+        Write-Verbose "Update-CumulativeHours: Empty nickname."
+        return $false
+    }
+    
+    # Get configuration if not provided
+    if ($null -eq $Config) {
+        try {
+            $Config = Get-AppConfig
+        } catch {
+            return Invoke-WithErrorHandling -ScriptBlock {
+                throw $_
+            } -ErrorContext "Getting configuration in Update-CumulativeHours" -Continue -DefaultValue $false
+        }
+    }
+    
+    return Invoke-WithErrorHandling -ScriptBlock {
+        # Get projects
+        $projects = @(Get-EntityData -FilePath $Config.ProjectsFullPath)
+        $project = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+        
+        if (-not $project) {
+            Write-Verbose "Update-CumulativeHours: Project '$Nickname' not found."
+            return $false
+        }
+        
+        # Get time entries
+        $timeEntries = @(Get-EntityData -FilePath $Config.TimeLogFullPath | Where-Object { $_.Nickname -eq $Nickname })
+        
+        $totalHours = 0.0
+        foreach ($entry in $timeEntries) {
+            $dailyTotal = 0.0
+            $weekDays = @("MonHours", "TueHours", "WedHours", "ThuHours", "FriHours", "SatHours", "SunHours")
+            
+            foreach ($day in $weekDays) {
+                if ($entry.PSObject.Properties.Name -contains $day -and -not [string]::IsNullOrWhiteSpace($entry.$day)) {
+                    $hours = 0.0
+                    if ([double]::TryParse($entry.$day, [ref]$hours)) {
+                        $dailyTotal += $hours
+                    }
+                }
+            }
+            
+            # If daily breakdown is empty but total exists, use the total
+            if ($entry.PSObject.Properties.Name -contains 'TotalHours' -and
+                -not [string]::IsNullOrWhiteSpace($entry.TotalHours) -and
+                $dailyTotal -eq 0.0) {
+                $hours = 0.0
+                if ([double]::TryParse($entry.TotalHours, [ref]$hours)) {
+                    $totalHours += $hours
+                }
+            } else {
+                $totalHours += $dailyTotal
+            }
+        }
+        
+        # Update the project's cumulative hours
+        $project.CumulativeHrs = $totalHours.ToString("F2")
+        
+        # Save projects
+        if (Save-EntityData -Data $projects -FilePath $Config.ProjectsFullPath) {
+            Write-Verbose "Updated cumulative hours for project '$Nickname': $($project.CumulativeHrs) hours"
+            Write-AppLog "Updated cumulative hours for project '$Nickname': $($project.CumulativeHrs) hours" -Level INFO
+            return $true
+        } else {
+            return $false
+        }
+    } -ErrorContext "Updating cumulative hours for project '$Nickname'" -Continue -DefaultValue $false
+}
+
+<#
+.SYNOPSIS
+    Initializes the data environment.
+.DESCRIPTION
+    Creates necessary directories and ensures required data files exist.
+    Called at application startup to ensure a valid data environment.
+.PARAMETER Config
+    Optional configuration object.
+.EXAMPLE
+    Initialize-DataEnvironment
+.OUTPUTS
+    System.Boolean - True if initialization was successful, False otherwise
+#>
+function Initialize-DataEnvironment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [hashtable]$Config = $null
+    )
+    
+    Write-Verbose "Initializing data environment..."
+    
+    # Get configuration if not provided
+    if ($null -eq $Config) {
+        try {
+            $Config = Get-AppConfig
+        } catch {
+            return Invoke-WithErrorHandling -ScriptBlock {
+                throw $_
+            } -ErrorContext "Getting configuration in Initialize-DataEnvironment" -Continue -DefaultValue $false
+        }
+    }
+    
+    return Invoke-WithErrorHandling -ScriptBlock {
+        # Create data directory
+        if (-not (Ensure-DirectoryExists -Path $Config.BaseDataDir)) {
+            return $false
+        }
+        
+        # Define required headers for each entity type
+        $projectsHeaders = @(
+            "FullProjectName", "Nickname", "ID1", "ID2", "DateAssigned",
+            "DueDate", "BFDate", "CumulativeHrs", "Note", "ProjFolder",
+            "ClosedDate", "Status"
+        )
+        
+        $todoHeaders = @(
+            "ID", "Nickname", "TaskDescription", "Importance", "DueDate", 
+            "Status", "CreatedDate", "CompletedDate"
+        )
+        
+        $timeHeaders = @(
+            "EntryID", "Date", "WeekStartDate", "Nickname", "ID1", "ID2",
+            "Description", "MonHours", "TueHours", "WedHours", "ThuHours", 
+            "FriHours", "SatHours", "SunHours", "TotalHours"
+        )
+        
+        $notesHeaders = @(
+            "NoteID", "Nickname", "DateCreated", "Title", "Content", "Tags"
+        )
+        
+        # Ensure data files exist with required headers
+        # Projects
+        Get-EntityData -FilePath $Config.ProjectsFullPath -RequiredHeaders $projectsHeaders -CreateIfNotExists | Out-Null
+        
+        # Todos
+        Get-EntityData -FilePath $Config.TodosFullPath -RequiredHeaders $todoHeaders -CreateIfNotExists | Out-Null
+        
+        # Time Entries
+        Get-EntityData -FilePath $Config.TimeLogFullPath -RequiredHeaders $timeHeaders -CreateIfNotExists | Out-Null
+        
+        # Notes (if configured)
+        if ($Config.ContainsKey("NotesFullPath")) {
+            Get-EntityData -FilePath $Config.NotesFullPath -RequiredHeaders $notesHeaders -CreateIfNotExists | Out-Null
+        }
+        
+        Write-AppLog "Data environment initialization complete" -Level INFO
+        
+        return $true
+    } -ErrorContext "Initializing data environment" -Continue -DefaultValue $false
+}
+
+#endregion Data Functions
+
+#region Helper Functions
+
+<#
+.SYNOPSIS
+    Reads user input with validation and default values.
+.DESCRIPTION
+    Prompts the user for input, with optional validation, default values, and secure input.
+.PARAMETER Prompt
+    The text to display as a prompt.
+.PARAMETER Validator
+    A script block that validates the input. Should return $true for valid input.
+.PARAMETER ErrorMessage
+    The error message to display when validation fails.
+.PARAMETER DefaultValue
+    The default value to use if the user enters nothing.
+.PARAMETER HideInput
+    If specified, hides the input (for passwords).
+.PARAMETER AllowEmpty
+    If specified, allows empty input even if a default value is provided.
+.EXAMPLE
+    $name = Read-UserInput -Prompt "Enter your name" -DefaultValue "User"
+.EXAMPLE
+    $age = Read-UserInput -Prompt "Enter your age" -Validator { param($input) $input -match '^\d+$' } -ErrorMessage "Age must be a number"
+.OUTPUTS
+    System.String - The user input or default value
+#>
+function Read-UserInput {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Prompt,
+        
+        [Parameter(Mandatory=$false)]
+        [scriptblock]$Validator = { param($input) $true },
+        
+        [Parameter(Mandatory=$false)]
+        [string]$ErrorMessage = "Invalid input. Please try again.",
+        
+        [Parameter(Mandatory=$false)]
+        [object]$DefaultValue = $null,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$HideInput,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$AllowEmpty
+    )
+    
+    # Check if we have the colorized output function
+    $hasColorOutput = Get-Command "Write-ColorText" -ErrorAction SilentlyContinue
+    
+    # Format prompt with default value if provided
+    $displayPrompt = $Prompt
+    if ($null -ne $DefaultValue -and -not [string]::IsNullOrEmpty($DefaultValue.ToString())) {
+        $displayPrompt += " [Default: $DefaultValue]"
+    }
+    $displayPrompt += ": "
+    
+    # Loop until valid input is received
+    while ($true) {
+        # Display prompt
+        if ($hasColorOutput) {
+            Write-ColorText $displayPrompt -ForegroundColor "Cyan" -NoNewline
+        } else {
+            Write-Host $displayPrompt -ForegroundColor Cyan -NoNewline
+        }
+        
+        # Get input (secure or normal)
+        $input = if ($HideInput) {
+            $secureString = Read-Host -AsSecureString
+            $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureString)
+            [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+        } else {
+            Read-Host
+        }
+        
+        # Handle empty input
+        if ([string]::IsNullOrEmpty($input)) {
+            if ($AllowEmpty) {
+                return ""
+            } elseif ($null -ne $DefaultValue) {
+                return $DefaultValue
+            } elseif (-not $AllowEmpty) {
+                if ($hasColorOutput) {
+                    Write-ColorText "Input cannot be empty." -ForegroundColor "Red"
+                } else {
+                    Write-Host "Input cannot be empty." -ForegroundColor Red
+                }
+                continue
+            }
+        }
+        
+        # Validate input
+        try {
+            $isValid = & $Validator $input
+            if ($isValid -eq $true) {
+                return $input
+            } else {
+                if ($hasColorOutput) {
+                    Write-ColorText $ErrorMessage -ForegroundColor "Red"
+                } else {
+                    Write-Host $ErrorMessage -ForegroundColor Red
+                }
+            }
+        } catch {
+            if ($hasColorOutput) {
+                Write-ColorText "Error in validator: $($_.Exception.Message)" -ForegroundColor "Red"
+            } else {
+                Write-Host "Error in validator: $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Confirms an action with the user.
+.DESCRIPTION
+    Asks the user to confirm an action with yes/no input.
+.PARAMETER ActionDescription
+    Description of the action to confirm.
+.PARAMETER ConfirmText
+    The text that indicates confirmation. Default is "Yes".
+.PARAMETER RejectText
+    The text that indicates rejection. Default is "No".
+.EXAMPLE
+    if (Confirm-Action -ActionDescription "Delete this file") {
+        # Deletion code here
+    }
+.OUTPUTS
+    System.Boolean - True if the user confirmed, False otherwise
+#>
+function Confirm-Action {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ActionDescription,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$ConfirmText = "Yes",
+        
+        [Parameter(Mandatory=$false)]
+        [string]$RejectText = "No"
+    )
+    
+    $hasColorOutput = Get-Command "Write-ColorText" -ErrorAction SilentlyContinue
+    
+    $prompt = "$ActionDescription ($ConfirmText/$RejectText)? "
+    
+    if ($hasColorOutput) {
+        Write-ColorText $prompt -ForegroundColor "Yellow" -NoNewline
+    } else {
+        Write-Host $prompt -ForegroundColor Yellow -NoNewline
+    }
+    
+    $response = Read-Host
+    
+    return $response -ieq $ConfirmText # Case-insensitive match
+}
+
+<#
+.SYNOPSIS
+    Creates a new ID (GUID).
+.DESCRIPTION
+    Generates a new GUID in the specified format.
+.PARAMETER Format
+    The format of the GUID. Can be Full, Digits, or Compact.
+.EXAMPLE
+    $id = New-ID -Format Compact
+.OUTPUTS
+    System.String - The GUID string
+#>
+function New-ID {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [ValidateSet("Full", "Digits", "Compact")]
+        [string]$Format = "Full"
+    )
+    
+    $guid = [System.Guid]::NewGuid()
+    
+    switch ($Format) {
+        "Full" {
+            return $guid.ToString("D") # "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        }
+        "Digits" {
+            return $guid.ToString("N") # "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+        "Compact" {
+            # Use base64 encoding for a shorter representation
+            $bytes = $guid.ToByteArray()
+            return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('/', '_').Replace('+', '-')
+        }
+        default {
+            return $guid.ToString()
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Converts a priority string to a numeric value for sorting.
+.DESCRIPTION
+    Converts priority strings (High, Normal, Low) to integers for consistent sorting.
+.PARAMETER Priority
+    The priority string to convert.
+.EXAMPLE
+    $sortedTodos = $todos | Sort-Object { Convert-PriorityToInt $_.Importance }
+.OUTPUTS
+    System.Int32 - The numeric priority value (lower is higher priority)
+#>
+function Convert-PriorityToInt {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        $Priority
+    )
+    
+    # Handle null or empty input first
+    if ([string]::IsNullOrWhiteSpace($Priority)) {
+        return 4 # Assign lowest priority (sorts last) if null/empty
+    }
+    
+    # Convert to lower case for case-insensitive comparison
+    $priorityLower = $Priority.ToString().ToLower()
+    
+    # Return numeric value based on priority
+    switch ($priorityLower) {
+        "high"   { return 1 }
+        "normal" { return 2 }
+        "medium" { return 2 } # Alias for normal
+        "low"    { return 3 }
+        default  { return 4 } # Unknown priority values sort last
+    }
+}
+
+#endregion Helper Functions
+
+#region Theme Engine
+
+# Define border character presets for themes
+$script:borderPresets = @{
+    # ASCII - for compatibility
+    ASCII = @{
+        Horizontal = "-"
+        Vertical = "|"
+        TopLeft = "+"
+        TopRight = "+"
+        BottomLeft = "+"
+        BottomRight = "+"
+        LeftJunction = "+"
+        RightJunction = "+"
+        TopJunction = "+"
+        BottomJunction = "+"
+        CrossJunction = "+"
+    }
+
+    # Light Box - standard Unicode box drawing
+    LightBox = @{
+        Horizontal = "─"
+        Vertical = "│"
+        TopLeft = "┌"
+        TopRight = "┐"
+        BottomLeft = "└"
+        BottomRight = "┘"
+        LeftJunction = "├"
+        RightJunction = "┤"
+        TopJunction = "┬"
+        BottomJunction = "┴"
+        CrossJunction = "┼"
+    }
+
+    # Heavy Box - bold lines
+    HeavyBox = @{
+        Horizontal = "━"
+        Vertical = "┃"
+        TopLeft = "┏"
+        TopRight = "┓"
+        BottomLeft = "┗"
+        BottomRight = "┛"
+        LeftJunction = "┣"
+        RightJunction = "┫"
+        TopJunction = "┳"
+        BottomJunction = "┻"
+        CrossJunction = "╋"
+    }
+
+    # Double Line - classic double borders
+    DoubleLine = @{
+        Horizontal = "═"
+        Vertical = "║"
+        TopLeft = "╔"
+        TopRight = "╗"
+        BottomLeft = "╚"
+        BottomRight = "╝"
+        LeftJunction = "╠"
+        RightJunction = "╣"
+        TopJunction = "╦"
+        BottomJunction = "╩"
+        CrossJunction = "╬"
+    }
+
+    # Rounded - softer corners
+    Rounded = @{
+        Horizontal = "─"
+        Vertical = "│"
+        TopLeft = "╭"
+        TopRight = "╮"
+        BottomLeft = "╰"
+        BottomRight = "╯"
+        LeftJunction = "├"
+        RightJunction = "┤"
+        TopJunction = "┬"
+        BottomJunction = "┴"
+        CrossJunction = "┼"
+    }
+
+    # Block - solid blocks
+    Block = @{
+        Horizontal = "█"
+        Vertical = "█"
+        TopLeft = "█"
+        TopRight = "█"
+        BottomLeft = "█"
+        BottomRight = "█"
+        LeftJunction = "█"
+        RightJunction = "█"
+        TopJunction = "█"
+        BottomJunction = "█"
+        CrossJunction = "█"
+    }
+
+    # Neon - for cyberpunk neon effect
+    Neon = @{
+        Horizontal = "─"
+        Vertical = "│"
+        TopLeft = "◢"
+        TopRight = "◣"
+        BottomLeft = "◥"
+        BottomRight = "◤"
+        LeftJunction = "├"
+        RightJunction = "┤"
+        TopJunction = "┬"
+        BottomJunction = "┴"
+        CrossJunction = "┼"
+    }
+}
+
+# Header presets
+$script:headerPresets = @{
+    # Simple - basic box
+    Simple = @{
+        Style = "Simple"
+        BorderChar = "="
+        Corners = "++++"
+    }
+
+    # Double - double-line borders
+    Double = @{
+        Style = "Double"
+        BorderChar = "═"
+        Corners = "╔╗╚╝"
+    }
+
+    # Gradient - gradient top border
+    Gradient = @{
+        Style = "Gradient"
+        BorderChar = "═"
+        Corners = "╔╗╚╝"
+        GradientChars = "█▓▒░"
+    }
+
+    # Minimal - minimal borders
+    Minimal = @{
+        Style = "Minimal"
+        BorderChar = "─"
+        Corners = "╭╮╰╯"
+    }
+
+    # Neon - cyberpunk neon effect
+    Neon = @{
+        Style = "Gradient"
+        BorderChar = "═"
+        Corners = "◢◣◥◤"
+        GradientChars = "▒░  "
+    }
+}
+
+# Default theme definition
+$script:defaultTheme = @{
+    Name = "Default"
+    Description = "Default system theme"
+    Author = "System"
+    Version = "1.0"
+    UseAnsiColors = $false
+    Colors = @{
+        Normal = "White"
+        Header = "Cyan"
+        Accent1 = "Yellow"
+        Accent2 = "Cyan"
+        Success = "Green"
+        Warning = "Yellow"
+        Error = "Red"
+        Completed = "DarkGray"
+        DueSoon = "Yellow"
+        Overdue = "Red"
+        TableBorder = "Gray"
+    }
+    Table = @{
+        Chars = $script:borderPresets.ASCII.Clone()
+        RowSeparator = $false
+        CellPadding = 1
+        HeaderStyle = "Normal"
+    }
+    Headers = $script:headerPresets.Simple.Clone()
+    Menu = @{
+        SelectedPrefix = ""
+        UnselectedPrefix = ""
+    }
+    ProgressBar = @{
+        FilledChar = "="
+        EmptyChar = " "
+        LeftCap = "["
+        RightCap = "]"
+    }
+}
+
+# Built-in themes
+$script:themePresets = @{
+    Default = $script:defaultTheme
+    
+    # NeonCyberpunk theme
+    NeonCyberpunk = @{
+        Name = "NeonCyberpunk"
+        Description = "Neon-inspired cyberpunk theme with bright colors and Unicode borders"
+        Author = "System"
+        Version = "1.0"
+        UseAnsiColors = $true
+        Colors = @{
+            Normal = "Cyan"
+            Header = "Magenta"
+            Accent1 = "Yellow"
+            Accent2 = "Cyan"
+            Success = "Green"
+            Warning = "Yellow"
+            Error = "Red"
+            Completed = "DarkGray"
+            DueSoon = "Yellow"
+            Overdue = "Red"
+            TableBorder = "Magenta"
+        }
+        Table = @{
+            Chars = $script:borderPresets.Neon.Clone()
+            RowSeparator = $true
+            CellPadding = 1
+            HeaderStyle = "Bold"
+        }
+        Headers = $script:headerPresets.Neon.Clone()
+        Menu = @{
+            SelectedPrefix = "▶"
+            UnselectedPrefix = " "
+        }
+        ProgressBar = @{
+            FilledChar = "█"
+            EmptyChar = "░"
+            LeftCap = "【"
+            RightCap = "】"
+        }
+    }
+    
+    # RetroWave theme - magenta/cyan with black background
+    RetroWave = @{
+        Name = "RetroWave"
+        Description = "Neon-inspired retro-wave cyberpunk theme with magenta and cyan"
+        Author = "System"
+        Version = "1.0"
+        UseAnsiColors = $true
+        Colors = @{
+            Normal = "Cyan"
+            Header = "Magenta"
+            Accent1 = "Yellow"
+            Accent2 = "Cyan"
+            Success = "Green"
+            Warning = "Yellow"
+            Error = "Red"
+            Completed = "DarkGray"
+            DueSoon = "Yellow"
+            Overdue = "Red"
+            TableBorder = "Magenta"
+        }
+        Table = @{
+            Chars = $script:borderPresets.HeavyBox.Clone()
+            RowSeparator = $true
+            CellPadding = 1
+            HeaderStyle = "Bold"
+        }
+        Headers = $script:headerPresets.Gradient.Clone()
+        Menu = @{
+            SelectedPrefix = "►"
+            UnselectedPrefix = " "
+        }
+        ProgressBar = @{
+            FilledChar = "█"
+            EmptyChar = "▒"
+            LeftCap = "["
+            RightCap = "]"
+        }
+    }
+    
+    # Matrix theme - green on black
+    Matrix = @{
+        Name = "Matrix"
+        Description = "Green-on-black hacker aesthetic inspired by The Matrix"
+        Author = "System"
+        Version = "1.0"
+        UseAnsiColors = $true
+        Colors = @{
+            Normal = "Green"
+            Header = "Green"
+            Accent1 = "DarkGreen"
+            Accent2 = "Green"
+            Success = "Green"
+            Warning = "Yellow"
+            Error = "Red"
+            Completed = "DarkGreen"
+            DueSoon = "Yellow"
+            Overdue = "Red"
+            TableBorder = "DarkGreen"
+        }
+        Table = @{
+            Chars = @{ 
+                Horizontal = "="
+                Vertical = "|"
+                TopLeft = "["
+                TopRight = "]"
+                BottomLeft = "["
+                BottomRight = "]"
+                LeftJunction = "|"
+                RightJunction = "|"
+                TopJunction = "="
+                BottomJunction = "="
+                CrossJunction = "+"
+            }
+            RowSeparator = $true
+            CellPadding = 1
+            HeaderStyle = "Normal"
+        }
+        Headers = @{
+            Style = "Simple"
+            BorderChar = "="
+            Corners = "[][]"
+        }
+        Menu = @{
+            SelectedPrefix = ">"
+            UnselectedPrefix = " "
+        }
+        ProgressBar = @{
+            FilledChar = "#"
+            EmptyChar = "."
+            LeftCap = "["
+            RightCap = "]"
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets all available themes.
+.DESCRIPTION
+    Returns a list of all available themes, including built-in themes
+    and custom themes from the themes directory.
+.PARAMETER ThemesDir
+    Optional path to the themes directory. If not specified, uses the path from configuration.
+.PARAMETER ForceRefresh
+    If specified, forces a refresh of the theme cache.
+.EXAMPLE
+    $themes = Get-AvailableThemes
+    foreach ($theme in $themes) {
+        Write-Host $theme.Name - $theme.Type
+    }
+.OUTPUTS
+    System.Collections.Generic.List[PSObject] - List of theme objects with Name, Type, and Source properties
+#>
+function Get-AvailableThemes {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [string]$ThemesDir = $null,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$ForceRefresh
+    )
+    
+    # Use cached results if available and not forcing refresh
+    if (-not $ForceRefresh -and $null -ne $script:availableThemesCache) {
+        return $script:availableThemesCache
+    }
+    
+    # Create a new list for the results
+    $themes = New-Object System.Collections.Generic.List[PSObject]
+    
+    # Add built-in themes
+    foreach ($name in $script:themePresets.Keys | Sort-Object) {
+        $themes.Add([PSCustomObject]@{
+            Name = $name
+            Type = "Built-in"
+            Source = "System"
+        })
+    }
+    
+    # Determine themes directory
+    if (-not $ThemesDir) {
+        try {
+            $config = Get-AppConfig
+            $ThemesDir = $config.ThemesDir
+        } catch {
+            # Default if can't get from config
+            $ThemesDir = Join-Path $PSScriptRoot "..\..\Themes"
+        }
+    }
+    
+    # Add custom themes from the themes directory
+    if (Test-Path $ThemesDir) {
+        Get-ChildItem -Path $ThemesDir -Filter "*.json" | ForEach-Object {
+            try {
+                $themeData = Get-Content -Path $_.FullName -Raw | ConvertFrom-Json
+                
+                # Check if this theme has at least a Name property
+                if ($themeData.PSObject.Properties.Name -contains 'Name') {
+                    $themes.Add([PSCustomObject]@{
+                        Name = $themeData.Name
+                        Type = "Custom"
+                        Source = if ($themeData.PSObject.Properties.Name -contains 'Author') {
+                            $themeData.Author
+                        } else {
+                            "User"
+                        }
+                    })
+                }
+            } catch {
+                Write-Verbose "Failed to load theme file $($_.Name): $($_.Exception.Message)"
+            }
+        }
+    }
+    
+    # Cache the results
+    $script:availableThemesCache = $themes
+    
+    return $themes
+}
+
+<#
+.SYNOPSIS
+    Gets a theme by name.
+.DESCRIPTION
+    Loads a theme by name, either from built-in themes or from a JSON file.
+    Ensures all theme properties exist by merging with the default theme.
+.PARAMETER ThemeName
+    The name of the theme to load.
+.PARAMETER ThemesDir
+    Optional path to the themes directory. If not specified, uses the path from configuration.
+.EXAMPLE
+    $theme = Get-Theme -ThemeName "RetroWave"
+.OUTPUTS
+    System.Collections.Hashtable - The theme hashtable with all required properties
+#>
+function Get-Theme {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ThemeName,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$ThemesDir = $null
+    )
+    
+    # Check if theme is a built-in preset
+    if ($script:themePresets.ContainsKey($ThemeName)) {
+        return Copy-HashtableDeep -Source $script:themePresets[$ThemeName]
+    }
+    
+    # Determine themes directory
+    if (-not $ThemesDir) {
+        try {
+            $config = Get-AppConfig
+            $ThemesDir = $config.ThemesDir
+        } catch {
+            # Default if can't get from config
+            $ThemesDir = Join-Path $PSScriptRoot "..\..\Themes"
+        }
+    }
+    
+    # Try to load from file
+    $themePath = Join-Path $ThemesDir "$ThemeName.json"
+    if (Test-Path $themePath) {
+        try {
+            $themeJson = Get-Content -Path $themePath -Raw | ConvertFrom-Json
+            
+            # Convert JSON to hashtable
+            $themeData = ConvertFrom-JsonToHashtable -InputObject $themeJson
+            
+            # Merge with default theme to ensure all properties exist
+            $mergedTheme = Merge-ThemeWithDefault -Theme $themeData
+            
+            return $mergedTheme
+        } catch {
+            Write-Warning "Failed to load theme file $ThemeName.json: $($_.Exception.Message)"
+        }
+    }
+    
+    # If we get here, theme not found, use default
+    Write-Warning "Theme '$ThemeName' not found. Using default theme."
+    return Copy-HashtableDeep -Source $script:defaultTheme
+}
+
+<#
+.SYNOPSIS
+    Converts a JSON object to a hashtable.
+.DESCRIPTION
+    Recursively converts a PSCustomObject from ConvertFrom-Json to a hashtable.
+.PARAMETER InputObject
+    The JSON object to convert.
+.EXAMPLE
+    $hashtable = ConvertFrom-JsonToHashtable -InputObject $jsonObject
+.OUTPUTS
+    System.Collections.Hashtable - The resulting hashtable
+#>
+function ConvertFrom-JsonToHashtable {
+    param(
+        [Parameter(Mandatory=$true)]
+        [object]$InputObject
+    )
+    
+    # Handle null
+    if ($null -eq $InputObject) {
+        return $null
+    }
+    
+    # Handle arrays
+    if ($InputObject -is [array]) {
+        $array = @()
+        foreach ($item in $InputObject) {
+            $array += ConvertFrom-JsonToHashtable -InputObject $item
+        }
+        return $array
+    }
+    
+    # Handle PSCustomObject
+    if ($InputObject -is [PSCustomObject]) {
+        $hash = @{}
+        foreach ($property in $InputObject.PSObject.Properties) {
+            $hash[$property.Name] = ConvertFrom-JsonToHashtable -InputObject $property.Value
+        }
+        return $hash
+    }
+    
+    # Return primitive types as-is
+    return $InputObject
+}
+
+<#
+.SYNOPSIS
+    Creates a deep copy of a hashtable.
+.DESCRIPTION
+    Creates a deep copy of a hashtable, including nested hashtables.
+.PARAMETER Source
+    The hashtable to copy.
+.EXAMPLE
+    $copy = Copy-HashtableDeep -Source $original
+.OUTPUTS
+    System.Collections.Hashtable - A deep copy of the source hashtable
+#>
+function Copy-HashtableDeep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [object]$Source
+    )
+    
+    if ($null -eq $Source) {
+        return $null
+    }
+    
+    if ($Source -is [hashtable]) {
+        $result = @{}
+        foreach ($key in $Source.Keys) {
+            $result[$key] = Copy-HashtableDeep -Source $Source[$key]
+        }
+        return $result
+    } elseif ($Source -is [array] -or $Source -is [System.Collections.ArrayList]) {
+        $result = @()
+        foreach ($item in $Source) {
+            $result += Copy-HashtableDeep -Source $item
+        }
+        return $result
+    } else {
+        return $Source
+    }
+}
+
+<#
+.SYNOPSIS
+    Merges a theme with the default theme.
+.DESCRIPTION
+    Ensures all required theme properties exist by merging the provided theme with the default theme.
+.PARAMETER Theme
+    The theme to merge with the default theme.
+.EXAMPLE
+    $completeTheme = Merge-ThemeWithDefault -Theme $customTheme
+.OUTPUTS
+    System.Collections.Hashtable - The merged theme hashtable
+#>
+function Merge-ThemeWithDefault {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [hashtable]$Theme
+    )
+    
+    # Start with a deep copy of the default theme
+    $defaultCopy = Copy-HashtableDeep -Source $script:defaultTheme
+    
+    # Recursive merge function
+    function Merge-Recursive($target, $source) {
+        foreach ($key in $source.Keys) {
+            if ($source[$key] -is [hashtable] -and $target.ContainsKey($key) -and $target[$key] -is [hashtable]) {
+                # Recursively merge nested hashtables
+                $target[$key] = Merge-Recursive -target $target[$key] -source $source[$key]
+            } else {
+                # Overwrite or add key from source
+                $target[$key] = Copy-HashtableDeep -Source $source[$key]
+            }
+        }
+        return $target
+    }
+    
+    # Merge theme into default copy
+    $mergedTheme = Merge-Recursive -target $defaultCopy -source $Theme
+    
+    return $mergedTheme
+}
+
+<#
+.SYNOPSIS
+    Sets the current theme.
+.DESCRIPTION
+    Sets the current theme, updating script-scope variables for theme and colors.
+    Updates $script:useAnsiColors based on theme settings.
+.PARAMETER ThemeName
+    The name of the theme to set.
+.PARAMETER ThemeObject
+    Optional theme object to use instead of loading by name.
+.EXAMPLE
+    Set-CurrentTheme -ThemeName "RetroWave"
+.OUTPUTS
+    System.Boolean - True if the theme was set successfully, False otherwise
+#>
+function Set-CurrentTheme {
+    [CmdletBinding(DefaultParameterSetName="ByName")]
+    param(
+        [Parameter(Mandatory=$true, ParameterSetName="ByName")]
+        [string]$ThemeName,
+        
+        [Parameter(Mandatory=$true, ParameterSetName="ByObject")]
+        [hashtable]$ThemeObject
+    )
+    
+    # Get the theme either by name or use the provided object
+    $theme = $null
+    if ($PSCmdlet.ParameterSetName -eq "ByName") {
+        $theme = Get-Theme -ThemeName $ThemeName
+    } else {
+        $theme = $ThemeObject
+    }
+    
+    # Ensure theme was loaded
+    if ($null -eq $theme) {
+        Write-Warning "Failed to load theme."
+        return $false
+    }
+    
+    # Update script-scope variables
+    $script:currentTheme = $theme
+    $script:colors = $theme.Colors
+    
+    # Update ANSI color usage based on theme
+    if ($theme.UseAnsiColors -is [bool]) {
+        $script:useAnsiColors = $theme.UseAnsiColors
+    }
+    
+    # Try to save to config if applicable
+    try {
+        $config = Get-AppConfig
+        $config.DefaultTheme = $theme.Name
+        Save-AppConfig -Config $config | Out-Null
+    } catch {
+        Write-Verbose "Failed to save theme to config: $($_.Exception.Message)"
+    }
+    
+    return $true
+}
+
+<#
+.SYNOPSIS
+    Gets the current theme.
+.DESCRIPTION
+    Returns the current theme object.
+.EXAMPLE
+    $theme = Get-CurrentTheme
+    Write-Host "Using theme: $($theme.Name)"
+.OUTPUTS
+    System.Collections.Hashtable - The current theme hashtable
+#>
+function Get-CurrentTheme {
+    [CmdletBinding()]
+    param()
+    
+    # Initialize theme if not already set
+    if ($null -eq $script:currentTheme) {
+        # Try to get default theme from config
+        $themeName = "Default"
+        
+        try {
+            $config = Get-AppConfig
+            $themeName = $config.DefaultTheme
+        } catch {
+            Write-Verbose "Failed to get default theme from config: $($_.Exception.Message)"
+        }
+        
+        $script:currentTheme = Get-Theme -ThemeName $themeName
+        $script:colors = $script:currentTheme.Colors
+        
+        if ($script:currentTheme.UseAnsiColors -is [bool]) {
+            $script:useAnsiColors = $script:currentTheme.UseAnsiColors
+        }
+    }
+    
+    return $script:currentTheme
+}
+
+<#
+.SYNOPSIS
+    Converts a color name to a standardized format.
+.DESCRIPTION
+    Takes a color in any format (string, ConsoleColor enum, etc.) and
+    converts it to a standardized string representation.
+.PARAMETER Color
+    The color to convert.
+.EXAMPLE
+    $standardColor = ConvertTo-StandardColorFormat -Color "red"
+.OUTPUTS
+    System.String - The standardized color name
+#>
+function ConvertTo-StandardColorFormat {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [object]$Color
+    )
+    
+    if ($Color -is [System.ConsoleColor]) {
+        return $Color.ToString()
+    } elseif ($Color -is [string]) {
+        $validColors = [System.Enum]::GetNames([System.ConsoleColor])
+        foreach ($validColor in $validColors) {
+            if ($validColor -ieq $Color) { return $validColor } # Case-insensitive match
+        }
+        Write-Verbose "Color name '$Color' not recognized, using 'White'."
+        return "White"
+    } else {
+        # Handle potential null or other types
+        if ($null -eq $Color) { return "White" }
+        $colorStr = $Color.ToString()
+        if ([System.Enum]::GetNames([System.ConsoleColor]) -contains $colorStr) {
+            return $colorStr
+        }
+        Write-Verbose "Color '$Color' not recognized, using 'White'."
+        return "White"
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets the ANSI color code for a PowerShell console color name.
+.DESCRIPTION
+    Converts a PowerShell color name to an ANSI color code for terminal output.
+.PARAMETER Color
+    The color to convert.
+.PARAMETER Background
+    If specified, returns the background color code instead of foreground.
+.EXAMPLE
+    $ansiCode = Get-AnsiColorCode -Color "Blue"
+.OUTPUTS
+    System.String - The ANSI color code (without escape sequence)
+#>
+function Get-AnsiColorCode {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [object]$Color,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$Background
+    )
+    
+    $colorName = ConvertTo-StandardColorFormat -Color $Color
+    $colorMap = if ($Background) { $script:ansiBackgroundColors } else { $script:ansiForegroundColors }
+    $defaultCode = if ($Background) { "40" } else { "37" } # Black BG, White FG
+    
+    if ($colorMap.ContainsKey($colorName)) {
+        return $colorMap[$colorName]
+    }
+    return $defaultCode
+}
+
+<#
+.SYNOPSIS
+    Removes ANSI escape sequences from a string.
+.DESCRIPTION
+    Strips all ANSI escape sequences from a string, returning just the visible text.
+.PARAMETER Text
+    The text to process.
+.EXAMPLE
+    $cleanText = Remove-AnsiCodes -Text $coloredText
+.OUTPUTS
+    System.String - The text with ANSI codes removed
+#>
+function Remove-AnsiCodes {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [string]$Text = ""
+    )
+    
+    if ([string]::IsNullOrEmpty($Text)) { return "" }
+    
+    if ($null -eq $script:ansiEscapePattern) {
+        return $Text
+    }
+    
+    return $script:ansiEscapePattern.Replace($Text, '')
+}
+
+<#
+.SYNOPSIS
+    Gets the visible length of a string by removing ANSI escape sequences.
+.DESCRIPTION
+    Calculates the visible length of a string by removing ANSI escape sequences.
+    Uses caching for performance with repeated calls.
+.PARAMETER Text
+    The text to measure.
+.EXAMPLE
+    $length = Get-VisibleStringLength -Text $coloredText
+.OUTPUTS
+    System.Int32 - The visible length of the string
+#>
+function Get-VisibleStringLength {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [string]$Text = ""
+    )
+    
+    if ($null -eq $Text) { return 0 }
+    if ($Text.Length -eq 0) { return 0 }
+    
+    # Use caching for performance with repeated calls
+    $cacheKey = [System.BitConverter]::ToString([System.Text.Encoding]::UTF8.GetBytes($Text))
+    
+    if ($script:stringLengthCache.ContainsKey($cacheKey)) {
+        return $script:stringLengthCache[$cacheKey]
+    }
+    
+    # Strip ANSI codes and calculate length
+    $strippedText = Remove-AnsiCodes -Text $Text
+    $length = $strippedText.Length
+    
+    # Cache the result
+    if ($script:stringLengthCache.Count -gt 1000) {
+        # Cache getting too large, clear it
+        $script:stringLengthCache.Clear()
+    }
+    $script:stringLengthCache[$cacheKey] = $length
+    
+    return $length
+}
+
+<#
+.SYNOPSIS
+    Safely truncates a string to a specified length.
+.DESCRIPTION
+    Truncates a string to a specified length, optionally preserving ANSI escape sequences.
+.PARAMETER Text
+    The text to truncate.
+.PARAMETER MaxLength
+    The maximum length of the resulting string.
+.PARAMETER PreserveAnsi
+    If specified, preserves ANSI escape sequences in the truncated string.
+.EXAMPLE
+    $truncated = Safe-TruncateString -Text $longText -MaxLength 80 -PreserveAnsi
+.OUTPUTS
+    System.String - The truncated string
+#>
+function Safe-TruncateString {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Text,
+        
+        [Parameter(Mandatory=$true)]
+        [int]$MaxLength,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$PreserveAnsi
+    )
+    
+    if ([string]::IsNullOrEmpty($Text)) { return "" }
+    if ($MaxLength -le 0) { return "" }
+    
+    $visibleLength = Get-VisibleStringLength -Text $Text
+    
+    if ($visibleLength -le $MaxLength) {
+        return $Text # Already fits, no truncation needed
+    }
+    
+    if ($PreserveAnsi) {
+        # This is a simplified approach for ANSI-preserving truncation
+        $hasAnsi = $Text -match '\x1b\['
+        
+        if (-not $hasAnsi) {
+            # No ANSI codes, simple truncation
+            if ($MaxLength -le 3) {
+                return "..."
+            }
+            return $Text.Substring(0, [Math]::Min($Text.Length, $MaxLength - 3)) + "..."
+        }
+        
+        # Extract visible text while keeping track of ANSI sequences
+        $visibleText = ""
+        $ansiSequences = @()
+        $position = 0
+        
+        # Parse the string, extracting ANSI sequences
+        while ($position -lt $Text.Length) {
+            if ($Text[$position] -eq [char]27 -and $position + 1 -lt $Text.Length -and $Text[$position + 1] -eq '[') {
+                # Found an ANSI sequence, extract it
+                $seqStart = $position
+                $position += 2 # Skip escape character an
