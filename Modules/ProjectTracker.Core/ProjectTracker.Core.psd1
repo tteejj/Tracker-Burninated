@@ -1,7 +1,7 @@
 @{
     RootModule = 'ProjectTracker.Core.psm1'
     ModuleVersion = '1.0.0'
-    GUID = '88b45e5c-e9cf-4f8d-ac9d-c3213d6d35ca' # Generated with [System.Guid]::NewGuid()
+    GUID = 'e10be037-964a-4230-b445-46d9c531fb61' # Generated with [System.Guid]::NewGuid()
     Author = 'Project Tracker Team'
     CompanyName = 'Project Tracker'
     Copyright = '(c) 2024 Project Tracker Team. All rights reserved.'
