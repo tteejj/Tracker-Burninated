@@ -1,0 +1,263 @@
+# Project Tracker Restructuring Plan
+
+## Current Issues
+- Libraries are plain PS1 files that need to be dot-sourced
+- No clear separation between public and private functions
+- Potential function visibility issues when importing
+- Error-prone importing of dependencies
+
+## Proposed Module Structure
+
+### 1. Core Module: ProjectTracker.Core.psm1
+Contains all the core functionality in a single module:
+- Configuration management
+- Error handling
+- Logging
+- Date functions
+- Helper functions
+- Theme engine (display)
+- Data access functions
+
+### 2. Functional Modules:
+- ProjectTracker.Projects.psm1
+- ProjectTracker.Todos.psm1
+- ProjectTracker.TimeTracking.psm1
+- ProjectTracker.Calendar.psm1
+
+### 3. Main Script Entry Point:
+- tracker.ps1 (Imports modules and provides the main UI)
+
+## Implementation Steps
+
+1. Create module manifest files (.psd1)
+2. Convert libraries to module format (.psm1)
+3. Define public and private functions
+4. Implement proper module importing
+5. Create tracker.ps1 entry point
+6. Implement vertical slice (Project List)
+7. Test with test-harness.ps1
+
+## Module Structure Example
+
+```powershell
+# ProjectTracker.Core.psm1 Example Structure
+
+# Module Variables
+$script:configCache = $null
+$script:currentTheme = $null
+# ...
+
+# Private Functions (not exported)
+function Private-Function {
+    # Implementation
+}
+
+# Public Functions (exported)
+function Get-AppConfig {
+    # Implementation
+}
+
+function Write-AppLog {
+    # Implementation
+}
+
+# Export Public Functions
+Export-ModuleMember -Function Get-AppConfig, Write-AppLog, ...
+```
+
+## Required Directory Structure
+
+```
+ProjectTracker/
+├── Modules/
+│   ├── ProjectTracker.Core/
+│   │   ├── ProjectTracker.Core.psd1   # Module manifest
+│   │   ├── ProjectTracker.Core.psm1   # Module implementation
+│   │   └── Data/                     # Internal data for the module
+│   ├── ProjectTracker.Projects/
+│   │   ├── ProjectTracker.Projects.psd1
+│   │   └── ProjectTracker.Projects.psm1
+│   # ... other modules
+├── Data/                             # Application data
+│   ├── projects.csv
+│   ├── todolist.csv
+│   ├── timetracking.csv
+│   └── config.json
+├── Themes/                           # Theme files
+│   ├── Default.json
+│   └── NeonCyberpunk.json
+├── tracker.ps1                       # Main entry point
+└── test-harness.ps1                  # Test script
+```
+
+## Vertical Slice Implementation
+
+For our initial implementation, focus on:
+1. Core module (implement all core functionality)
+2. Projects module (implement List action only)
+3. Main entry point script with minimal menu
+4. End-to-end test of listing projects
+
+This approach follows the outlined strategy while ensuring proper structure from the start.
+
+Refinements/Additions to the Plan:
+
+Module Manifests (.psd1):
+
+Crucial Details: Emphasize filling out the .psd1 files properly. Key fields include:
+
+RootModule = 'ModuleName.psm1'
+
+ModuleVersion = '1.0.0'
+
+GUID = (New-Guid).Guid (Generate a unique one for each module)
+
+Author = '<Your Name/Handle>'
+
+Description = '...'
+
+FunctionsToExport = @('PublicFunction1', 'PublicFunction2') (Listing exported functions here is good practice, though Export-ModuleMember in the .psm1 is the definitive control).
+
+AliasesToExport = @() (If you define aliases within the module).
+
+PrivateData = @{ PSData = @{ ... } } (Can store metadata).
+
+RequiredModules = @(@{ModuleName='ProjectTracker.Core'; ModuleVersion='1.0.0'}): Functional modules like ProjectTracker.Projects must list ProjectTracker.Core here to ensure it's loaded first.
+
+Importing Modules:
+
+In tracker.ps1 and the functional modules (Projects, Todos, etc.), use Import-Module.
+
+To make this work easily during development without installing the modules system-wide, use relative paths:
+
+# In tracker.ps1
+Import-Module -Name ".\Modules\ProjectTracker.Core\ProjectTracker.Core.psd1"
+Import-Module -Name ".\Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1"
+# etc.
+
+# In ProjectTracker.Projects.psm1 (it requires Core)
+# PowerShell often handles this via the manifest's RequiredModules,
+# but explicitly importing can sometimes be clearer during development IF auto-loading fails.
+# Generally, rely on the manifest first. If you need explicit import:
+# Import-Module -Name "$PSScriptRoot\..\ProjectTracker.Core\ProjectTracker.Core.psd1"
+Use code with caution.
+Powershell
+**
+P
+S
+S
+c
+r
+i
+p
+t
+R
+o
+o
+t
+:
+∗
+∗
+R
+e
+m
+e
+m
+b
+e
+r
+t
+h
+a
+t
+w
+i
+t
+h
+i
+n
+a
+‘
+.
+p
+s
+m
+1
+‘
+f
+i
+l
+e
+,
+‘
+PSScriptRoot:∗∗Rememberthatwithina‘.psm1‘file,‘
+PSScriptRootrefers to the directory containing the.psm1` file, which is essential for loading dependencies via relative paths if needed.
+
+ProjectTracker.Core.psm1 - State Management:
+
+Variables like $script:currentTheme, $script:configCache, $script:colors defined inside the .psm1 are effectively scoped to the module instance unless explicitly manipulated by exported functions. This is generally good.
+
+Ensure functions like Set-CurrentTheme correctly modify these module-scoped variables. Functions outside the module won't be able to modify them directly, only via exported functions like Set-CurrentTheme.
+
+Functional Modules (.psm1):
+
+These should export functions that represent the primary actions (e.g., Show-ProjectList, New-TrackerProject, Get-ProjectByNickname, Add-TrackerTodoItem, Get-TodosDueOnDate).
+
+tracker.ps1 would call these functions rather than calling the module script with an -Action parameter (which is more common for standalone utility scripts). This is a cleaner, more PowerShell-idiomatic way for modules to interact.
+
+Revised Module Template Usage: The template's param() block might not be needed if you call exported functions directly. The module structure remains, but interaction changes slightly.
+
+Revised tracker.ps1 call: Show-ProjectList -All -Theme $themeObject -Config $configObject (assuming Show-ProjectList is exported from ProjectTracker.Projects).
+
+Revised ProjectTracker.Projects.psm1 structure:
+
+# ProjectTracker.Projects.psm1
+
+# Private helper functions...
+function Private-GetProjectData { ... }
+
+# Public functions
+function Show-ProjectList {
+    param([switch]$All, $Theme, $Config)
+    # Uses $Theme, $Config passed in
+    # Calls theme engine functions (already loaded via manifest)
+    # Calls Private-GetProjectData
+    # ...
+}
+function New-TrackerProject { param(...) }
+# ...
+
+Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, ...
+Use code with caution.
+Powershell
+test-harness.ps1: Rename to run-tests.ps1 perhaps? Its job is primarily Import-Module Pester; Invoke-Pester -Path .\tests\. You might add setup/teardown if needed (e.g., creating temp data dirs). The actual tests live in tests/*.tests.ps1.
+
+Updated Implementation Strategy (Incorporating Module Structure):
+
+Setup Dirs & Manifests: Create the directory structure. Create basic .psd1 manifest files for Core and Projects (initially).
+
+Core Module Foundation: Migrate config, error-handling, logging, data-functions into ProjectTracker.Core.psm1. Define exports in .psd1 and .psm1. Write Pester tests (tests/ProjectTracker.Core.tests.ps1).
+
+Theme Engine Core: Migrate Write-ColorText, Get-Theme, Set-CurrentTheme into ProjectTracker.Core.psm1. Add exports. Write Pester tests.
+
+Test Harness: Create run-tests.ps1. Ensure tests for Core pass.
+
+Project Module (Vertical Slice - List):
+
+Create ProjectTracker.Projects.psm1. Add ProjectTracker.Core to its RequiredModules in the .psd1.
+
+Implement Show-ProjectList function (exported).
+
+Inside Show-ProjectList, call functions from the Core module (e.g., Get-EntityData, Render-Header, Show-Table - note: these UI functions also need to be migrated to Core).
+
+Write Pester tests (tests/ProjectTracker.Projects.tests.ps1) mocking Core module functions.
+
+Tracker Script (Initial):
+
+Create tracker.ps1.
+
+Import-Module ProjectTracker.Core and ProjectTracker.Projects.
+
+Basic menu calls Show-ProjectList. Test end-to-end.
+
+Expand Incrementally: Add other functions (New-TrackerProject, etc.) to ProjectTracker.Projects, exporting them. Add other modules (Todos, Time, Calendar), ensuring they require and use ProjectTracker.Core. Build remaining UI components within ProjectTracker.Core.
