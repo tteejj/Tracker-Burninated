@@ -7,8 +7,11 @@ $scriptDir = $PSScriptRoot # Use the directory where tracker.ps1 is located
 # Use relative paths for development. Adjust if installing modules globally.
 try {
     Import-Module -Name "$scriptDir\Modules\ProjectTracker.Core\ProjectTracker.Core.psd1" -ErrorAction Stop
-    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1" -ErrorAction Stop
-    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Todos\ProjectTracker.Todos.psd1" -ErrorAction Stop
+
+    # Add other modules as they are created:
+    # Import-Module -Name "$scriptDir\Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1" -ErrorAction Stop
+    # Import-Module -Name "$scriptDir\Modules\ProjectTracker.Todos\ProjectTracker.Todos.psd1" -ErrorAction Stop
+
 } catch {
     Write-Host "ERROR: Failed to import required Project Tracker modules." -ForegroundColor Red
     Write-Host "Details: $($_.Exception.Message)" -ForegroundColor Red
@@ -43,7 +46,7 @@ function Initialize-Application {
         # Load config AFTER data env is initialized (in case config file needs creation)
         $config = Get-AppConfig    # From Core Module
 
-        # Set theme based on config
+        # Set theme based on config (Initialize-ThemeEngine might do this already, double-check its logic)
         Set-CurrentTheme -ThemeName $config.DefaultTheme # From Core Module
 
         # Handle ANSI override if specified via command line or environment
@@ -76,8 +79,8 @@ function Show-MainMenu {
     # Todo Options
     $menuItems += @{ Type = "option"; Key = "2"; Text = "Todo Management"; Function = { Show-TodoMenu } }
 
-    # Time Tracking Options (placeholder)
-    $menuItems += @{ Type = "option"; Key = "3"; Text = "Time Tracking"; Function = { Show-InfoBox -Title "Time Tracking" -Message "Time tracking functionality will be available in a future update." -Type Info; Read-Host "Press Enter to continue..."; return $null } }
+    # Time Tracking Options
+    $menuItems += @{ Type = "option"; Key = "3"; Text = "Time Tracking"; Function = { Show-TimeTrackingMenu } }
 
     # Theme Options
     $menuItems += @{ Type = "option"; Key = "8"; Text = "List Available Themes"; Function = { Show-ThemeList } }
@@ -91,13 +94,34 @@ function Show-MainMenu {
 }
 
 # --- UI Helper Functions ---
+function Show-ProjectMenu {
+    # This will be implemented when the Projects module is available
+    Show-InfoBox -Title "Project Management" -Message "Project management functionality will be available when the Projects module is implemented." -Type Info
+    Read-Host "Press Enter to continue..."
+    return $false
+}
+
+function Show-TodoMenu {
+    # This will be implemented when the Todos module is available
+    Show-InfoBox -Title "Todo Management" -Message "Todo management functionality will be available when the Todos module is implemented." -Type Info
+    Read-Host "Press Enter to continue..."
+    return $false
+}
+
+function Show-TimeTrackingMenu {
+    # This will be implemented when the TimeTracking module is available
+    Show-InfoBox -Title "Time Tracking" -Message "Time tracking functionality will be available when the TimeTracking module is implemented." -Type Info
+    Read-Host "Press Enter to continue..."
+    return $false
+}
+
 function Show-ThemeList {
     Render-Header -Title "Available Themes"
 
     $themes = Get-AvailableThemes
 
     if ($themes.Count -eq 0) {
-        Write-ColorText "No themes available." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+        Write-ColorText "No themes available." -ForegroundColor $script:colors.Warning
         Read-Host "Press Enter to continue..."
         return
     }
@@ -126,7 +150,7 @@ function Change-Theme {
     $themes = Get-AvailableThemes
 
     if ($themes.Count -eq 0) {
-        Write-ColorText "No themes available." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+        Write-ColorText "No themes available." -ForegroundColor $script:colors.Warning
         Read-Host "Press Enter to continue..."
         return
     }
@@ -183,15 +207,15 @@ function Change-Theme {
 
 # --- Main Execution ---
 
-# Set global ANSI override if specified
-if ($disableAnsi) {
-    $global:FORCE_DISABLE_ANSI = $true
-}
-
 # Initialize the application
 if (-not (Initialize-Application)) {
     Write-Host "Failed to initialize application. Exiting..." -ForegroundColor Red
     exit 1
+}
+
+# Set global ANSI override if specified
+if ($disableAnsi) {
+    $global:FORCE_DISABLE_ANSI = $true
 }
 
 # Main application loop

@@ -1214,6 +1214,566 @@ function Get-AppLogContent {
 
 ##Start of missing content
 
+# Missing functions for ProjectTracker.Core.psm1
+
+<#
+.SYNOPSIS
+    Initializes the data environment.
+.DESCRIPTION
+    Creates necessary directories and ensures data files exist with required headers.
+.EXAMPLE
+    Initialize-DataEnvironment
+.OUTPUTS
+    Boolean indicating success
+#>
+function Initialize-DataEnvironment {
+    [CmdletBinding()]
+    param()
+    
+    Write-Verbose "Initializing data environment..."
+    
+    try {
+        $config = Get-AppConfig
+        
+        # Ensure base directory exists
+        if (-not (Ensure-DirectoryExists -Path $config.BaseDataDir)) {
+            Write-AppLog "Failed to create base data directory: $($config.BaseDataDir)" -Level ERROR
+            return $false
+        }
+        
+        # Ensure themes directory exists
+        if (-not (Ensure-DirectoryExists -Path $config.ThemesDir)) {
+            Write-AppLog "Failed to create themes directory: $($config.ThemesDir)" -Level ERROR
+            return $false
+        }
+        
+        # Initialize data files with headers
+        $dataFiles = @(
+            @{ Path = $config.ProjectsFullPath; Headers = $config.ProjectsHeaders },
+            @{ Path = $config.TodosFullPath; Headers = $config.TodosHeaders },
+            @{ Path = $config.TimeLogFullPath; Headers = $config.TimeHeaders },
+            @{ Path = $config.NotesFullPath; Headers = $config.NotesHeaders },
+            @{ Path = $config.CommandsFullPath; Headers = $config.CommandsHeaders }
+        )
+        
+        foreach ($file in $dataFiles) {
+            if (-not (Test-Path -Path $file.Path)) {
+                # Create file with headers
+                $file.Headers -join "," | Out-File -FilePath $file.Path -Encoding utf8
+                Write-Verbose "Created data file: $($file.Path)"
+            }
+        }
+        
+        Write-AppLog "Data environment initialization complete" -Level INFO
+        return $true
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Data environment initialization" -Continue
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Initializes the theme engine.
+.DESCRIPTION
+    Sets up the theme engine, loads the configured theme, and initializes
+    theming variables.
+.EXAMPLE
+    Initialize-ThemeEngine
+.OUTPUTS
+    Boolean indicating success
+#>
+function Initialize-ThemeEngine {
+    [CmdletBinding()]
+    param()
+    
+    Write-Verbose "Initializing theme engine..."
+    
+    try {
+        $config = Get-AppConfig
+        
+        # Clear cache
+        $script:availableThemesCache = $null
+        $script:stringLengthCache = @{}
+        
+        # Ensure themes directory exists
+        Ensure-DirectoryExists -Path $config.ThemesDir | Out-Null
+        
+        # Save built-in themes to files if they don't exist
+        foreach ($themeName in $script:themePresets.Keys) {
+            $themePath = Join-Path $config.ThemesDir "$themeName.json"
+            if (-not (Test-Path $themePath)) {
+                try {
+                    # Get a deep copy of the theme
+                    $themeToSave = Copy-HashtableDeep -Source $script:themePresets[$themeName]
+                    # Convert to JSON and save
+                    ConvertTo-Json -InputObject $themeToSave -Depth 10 | 
+                        Out-File -FilePath $themePath -Encoding utf8
+                    Write-Verbose "Saved built-in theme: $themeName"
+                } catch {
+                    Write-AppLog "Failed to save built-in theme '$themeName': $($_.Exception.Message)" -Level WARNING
+                }
+            }
+        }
+        
+        # Load default theme
+        $defaultThemeName = $config.DefaultTheme
+        if (-not $defaultThemeName -or -not (Set-CurrentTheme -ThemeName $defaultThemeName)) {
+            # If failed to load specified theme, use Default
+            if (-not (Set-CurrentTheme -ThemeName "Default")) {
+                # If even that fails, use the hardcoded default theme
+                $script:currentTheme = $script:defaultTheme
+                $script:colors = $script:defaultTheme.Colors
+                $script:useAnsiColors = $script:defaultTheme.UseAnsiColors
+                Write-AppLog "Failed to load any theme, using hardcoded default" -Level WARNING
+            }
+        }
+        
+        Write-AppLog "Theme engine initialized with theme: $($script:currentTheme.Name)" -Level INFO
+        return $true
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Theme engine initialization" -Continue
+        # Even on error, ensure we have a theme
+        if (-not $script:currentTheme) {
+            $script:currentTheme = $script:defaultTheme
+            $script:colors = $script:defaultTheme.Colors
+            $script:useAnsiColors = $script:defaultTheme.UseAnsiColors
+        }
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates a deep copy of a hashtable.
+.DESCRIPTION
+    Creates a deep copy of a hashtable, including all nested hashtables.
+.PARAMETER Source
+    The hashtable to copy.
+.EXAMPLE
+    $copy = Copy-HashtableDeep -Source $originalHashtable
+.OUTPUTS
+    System.Collections.Hashtable - The deep copy
+#>
+function Copy-HashtableDeep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        $Source
+    )
+    
+    if ($null -eq $Source) { return $null }
+    
+    if ($Source -is [hashtable]) {
+        $copy = @{}
+        foreach ($key in $Source.Keys) {
+            $copy[$key] = Copy-HashtableDeep -Source $Source[$key]
+        }
+        return $copy
+    } elseif ($Source -is [System.Collections.ICollection]) {
+        $copy = New-Object -TypeName "System.Collections.ArrayList"
+        foreach ($item in $Source) {
+            $null = $copy.Add((Copy-HashtableDeep -Source $item))
+        }
+        return $copy
+    } else {
+        return $Source
+    }
+}
+
+<#
+.SYNOPSIS
+    Converts JSON to hashtable.
+.DESCRIPTION
+    Converts a JSON string or PSCustomObject to a hashtable.
+.PARAMETER InputObject
+    The JSON string or PSCustomObject to convert.
+.EXAMPLE
+    $hashtable = ConvertFrom-JsonToHashtable -InputObject $jsonString
+.OUTPUTS
+    System.Collections.Hashtable - The resulting hashtable
+#>
+function ConvertFrom-JsonToHashtable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        $InputObject
+    )
+    
+    process {
+        # If it's a string, convert to object first
+        if ($InputObject -is [string]) {
+            $InputObject = $InputObject | ConvertFrom-Json
+        }
+        
+        # If it's not a custom object, return as is
+        if (-not ($InputObject -is [PSCustomObject])) {
+            return $InputObject
+        }
+        
+        # Convert PSCustomObject to hashtable
+        $hashtable = @{}
+        foreach ($property in $InputObject.PSObject.Properties) {
+            $value = $property.Value
+            
+            # Handle nested objects
+            if ($value -is [PSCustomObject]) {
+                $value = ConvertFrom-JsonToHashtable -InputObject $value
+            } elseif ($value -is [Object[]]) {
+                # Handle arrays
+                $value = @($value | ForEach-Object {
+                    if ($_ -is [PSCustomObject]) {
+                        ConvertFrom-JsonToHashtable -InputObject $_
+                    } else {
+                        $_
+                    }
+                })
+            }
+            
+            $hashtable[$property.Name] = $value
+        }
+        
+        return $hashtable
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets an entity by ID.
+.DESCRIPTION
+    Retrieves an entity from a data file by its ID.
+.PARAMETER FilePath
+    The path to the data file.
+.PARAMETER ID
+    The ID of the entity to retrieve.
+.PARAMETER IdField
+    The name of the ID field. Default is "ID".
+.EXAMPLE
+    $todo = Get-EntityById -FilePath $config.TodosFullPath -ID "12345"
+.OUTPUTS
+    PSObject representing the entity, or $null if not found
+#>
+function Get-EntityById {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$ID,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$IdField = "ID"
+    )
+    
+    try {
+        # Get all entities
+        $entities = @(Get-EntityData -FilePath $FilePath)
+        
+        # Find the entity by ID
+        $entity = $entities | Where-Object { $_.$IdField -eq $ID } | Select-Object -First 1
+        
+        if (-not $entity) {
+            Write-Verbose "Entity with $IdField='$ID' not found in $FilePath"
+            return $null
+        }
+        
+        return $entity
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Getting entity by ID" -Continue
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    Updates an entity by ID.
+.DESCRIPTION
+    Updates an entity in a data file by its ID.
+.PARAMETER FilePath
+    The path to the data file.
+.PARAMETER ID
+    The ID of the entity to update.
+.PARAMETER UpdatedEntity
+    The updated entity object.
+.PARAMETER IdField
+    The name of the ID field. Default is "ID".
+.EXAMPLE
+    $success = Update-EntityById -FilePath $config.TodosFullPath -ID "12345" -UpdatedEntity $updatedTodo
+.OUTPUTS
+    Boolean indicating success or failure
+#>
+function Update-EntityById {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$ID,
+        
+        [Parameter(Mandatory=$true)]
+        [PSObject]$UpdatedEntity,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$IdField = "ID"
+    )
+    
+    try {
+        # Get all entities
+        $entities = @(Get-EntityData -FilePath $FilePath)
+        
+        # Create updated list
+        $updatedEntities = @()
+        $entityFound = $false
+        
+        foreach ($entity in $entities) {
+            if ($entity.$IdField -eq $ID) {
+                $updatedEntities += $UpdatedEntity
+                $entityFound = $true
+            } else {
+                $updatedEntities += $entity
+            }
+        }
+        
+        if (-not $entityFound) {
+            Write-Verbose "Entity with $IdField='$ID' not found in $FilePath"
+            return $false
+        }
+        
+        # Save the updated entities
+        return Save-EntityData -Data $updatedEntities -FilePath $FilePath
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Updating entity by ID" -Continue
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Removes an entity by ID.
+.DESCRIPTION
+    Removes an entity from a data file by its ID.
+.PARAMETER FilePath
+    The path to the data file.
+.PARAMETER ID
+    The ID of the entity to remove.
+.PARAMETER IdField
+    The name of the ID field. Default is "ID".
+.EXAMPLE
+    $success = Remove-EntityById -FilePath $config.TodosFullPath -ID "12345"
+.OUTPUTS
+    Boolean indicating success or failure
+#>
+function Remove-EntityById {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$ID,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$IdField = "ID"
+    )
+    
+    try {
+        # Get all entities
+        $entities = @(Get-EntityData -FilePath $FilePath)
+        
+        # Filter out the entity to remove
+        $updatedEntities = $entities | Where-Object { $_.$IdField -ne $ID }
+        
+        # Check if an entity was removed
+        if ($updatedEntities.Count -eq $entities.Count) {
+            Write-Verbose "Entity with $IdField='$ID' not found in $FilePath"
+            return $false
+        }
+        
+        # Save the updated entities
+        return Save-EntityData -Data $updatedEntities -FilePath $FilePath
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Removing entity by ID" -Continue
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates a new entity.
+.DESCRIPTION
+    Creates a new entity and adds it to a data file.
+.PARAMETER FilePath
+    The path to the data file.
+.PARAMETER Entity
+    The entity object to create.
+.PARAMETER IdField
+    The name of the ID field. Default is "ID".
+.PARAMETER GenerateId
+    Whether to generate a new ID for the entity if one doesn't exist.
+.EXAMPLE
+    $success = Create-Entity -FilePath $config.TodosFullPath -Entity $newTodo -GenerateId
+.OUTPUTS
+    Boolean indicating success or failure
+#>
+function Create-Entity {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$FilePath,
+        
+        [Parameter(Mandatory=$true)]
+        [PSObject]$Entity,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$IdField = "ID",
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$GenerateId
+    )
+    
+    try {
+        # Generate ID if needed
+        if ($GenerateId -and (-not $Entity.PSObject.Properties.Name.Contains($IdField) -or [string]::IsNullOrWhiteSpace($Entity.$IdField))) {
+            $newId = New-ID
+            $Entity | Add-Member -NotePropertyName $IdField -NotePropertyValue $newId -Force
+        }
+        
+        # Get all entities
+        $entities = @(Get-EntityData -FilePath $FilePath)
+        
+        # Add the new entity
+        $updatedEntities = $entities + $Entity
+        
+        # Save the updated entities
+        return Save-EntityData -Data $updatedEntities -FilePath $FilePath
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Creating entity" -Continue
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Generates a new unique ID.
+.DESCRIPTION
+    Generates a new unique identifier (GUID).
+.PARAMETER Format
+    The format of the ID to generate (Short or Full). Default is Full.
+.EXAMPLE
+    $id = New-ID
+.OUTPUTS
+    String containing the generated ID
+#>
+function New-ID {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)]
+        [ValidateSet("Short", "Full")]
+        [string]$Format = "Full"
+    )
+    
+    switch ($Format) {
+        "Short" {
+            return [Guid]::NewGuid().ToString("N").Substring(0, 8)
+        }
+        default {
+            return [Guid]::NewGuid().ToString()
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets the relative week description.
+.DESCRIPTION
+    Returns a relative description of a week (This Week, Next Week, etc.).
+.PARAMETER Date
+    The date to get the description for.
+.PARAMETER ReferenceDate
+    The reference date to compare against. Default is today.
+.EXAMPLE
+    $description = Get-RelativeWeekDescription -Date "2024-04-15"
+.OUTPUTS
+    String containing the relative week description
+#>
+function Get-RelativeWeekDescription {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [DateTime]$Date,
+        
+        [Parameter(Mandatory=$false)]
+        [DateTime]$ReferenceDate = (Get-Date).Date
+    )
+    
+    # Get the start of the reference week
+    $referenceWeekStart = Get-FirstDayOfWeek -Date $ReferenceDate
+    
+    # Get the start of the target week
+    $targetWeekStart = Get-FirstDayOfWeek -Date $Date
+    
+    # Calculate the difference in weeks
+    $weekDiff = (New-TimeSpan -Start $referenceWeekStart -End $targetWeekStart).Days / 7
+    
+    switch ($weekDiff) {
+        -4 { return "4 weeks ago" }
+        -3 { return "3 weeks ago" }
+        -2 { return "2 weeks ago" }
+        -1 { return "Last week" }
+        0 { return "This week" }
+        1 { return "Next week" }
+        2 { return "In 2 weeks" }
+        3 { return "In 3 weeks" }
+        4 { return "In 4 weeks" }
+        default {
+            $weekNum = Get-WeekNumber -Date $Date
+            $year = $Date.Year
+            
+            if ($year -eq $ReferenceDate.Year) {
+                return "Week $weekNum"
+            } else {
+                return "Week $weekNum, $year"
+            }
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets the date range for a month.
+.DESCRIPTION
+    Gets the start and end dates for a specified month.
+.PARAMETER Year
+    The year.
+.PARAMETER Month
+    The month number (1-12).
+.EXAMPLE
+    $range = Get-MonthDateRange -Year 2024 -Month 4
+.OUTPUTS
+    PSObject with StartDate and EndDate properties
+#>
+function Get-MonthDateRange {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [int]$Year,
+        
+        [Parameter(Mandatory=$true)]
+        [ValidateRange(1, 12)]
+        [int]$Month
+    )
+    
+    $startDate = [DateTime]::new($Year, $Month, 1)
+    $endDate = $startDate.AddMonths(1).AddDays(-1)
+    
+    return [PSCustomObject]@{
+        StartDate = $startDate
+        EndDate = $endDate
+    }
+}
+
 #region Display Functions
 
 # This implementation is based on the display-module.txt file

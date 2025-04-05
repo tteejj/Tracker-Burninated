@@ -698,6 +698,8 @@ function Update-TodoForProject {
     }
 }
 
+# Complete the Remove-TrackerProject function that was incomplete
+
 <#
 .SYNOPSIS
     Deletes a project.
@@ -719,6 +721,71 @@ function Remove-TrackerProject {
     
     Write-AppLog "Deleting project: $Nickname" -Level INFO
     Render-Header "Delete Project"
+    
+    try {
+        $config = Get-AppConfig
+        $ProjectsFilePath = $config.ProjectsFullPath
+        
+        # Get existing projects
+        $projects = @(Get-EntityData -FilePath $ProjectsFilePath -RequiredHeaders $PROJECTS_HEADERS)
+        $project = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+        
+        if (-not $project) {
+            Write-ColorText "Error: Project '$Nickname' not found." -ForegroundColor (Get-CurrentTheme).Colors.Error
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
+        
+        # Confirm deletion
+        $confirmText = "Are you sure you want to delete project '$($project.Nickname)' ($($project.FullProjectName))?"
+        Write-ColorText $confirmText -ForegroundColor (Get-CurrentTheme).Colors.Warning
+        Write-ColorText "This will also delete all associated todo items." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+        Write-ColorText "Type 'yes' to confirm: " -ForegroundColor (Get-CurrentTheme).Colors.Warning -NoNewline
+        $confirmation = Read-Host
+        
+        if ($confirmation -ne "yes") {
+            Write-ColorText "Project deletion cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
+        
+        # Remove the project from the list
+        $updatedProjects = $projects | Where-Object { $_.Nickname -ne $Nickname }
+        
+        # Save projects
+        if (-not (Save-EntityData -Data $updatedProjects -FilePath $ProjectsFilePath -RequiredHeaders $PROJECTS_HEADERS)) {
+            Write-ColorText "Failed to save updated project list." -ForegroundColor (Get-CurrentTheme).Colors.Error
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
+        
+        # Clean up related todos
+        try {
+            $TodosFilePath = $config.TodosFullPath
+            $todos = @(Get-EntityData -FilePath $TodosFilePath -RequiredHeaders $TODO_HEADERS)
+            $updatedTodos = $todos | Where-Object { $_.Nickname -ne $Nickname }
+            
+            # If todos were removed, save the updated list
+            if ($updatedTodos.Count -lt $todos.Count) {
+                Save-EntityData -Data $updatedTodos -FilePath $TodosFilePath -RequiredHeaders $TODO_HEADERS | Out-Null
+                Write-Verbose "Removed $($todos.Count - $updatedTodos.Count) todo items related to project '$Nickname'"
+            }
+        } catch {
+            Write-Verbose "Error cleaning up todos: $($_.Exception.Message)"
+            # Continue with project deletion even if todo cleanup fails
+        }
+        
+        # Success
+        Write-ColorText "Project '$Nickname' deleted successfully!" -ForegroundColor (Get-CurrentTheme).Colors.Success
+        Write-AppLog "Project deleted: $Nickname" -Level INFO
+        
+        Read-Host "Press Enter to continue..."
+        return $true
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Deleting project" -Continue
+        return $false
+    }
+}
 
 ##Start of missing content
 # Add this function to the ProjectTracker.Projects.psm1 file
@@ -886,6 +953,171 @@ function Show-ProjectMenu {
     
     return Show-DynamicMenu -Title "Project Management" -MenuItems $menuItems
 }
+
+
+# Add to ProjectTracker.Projects.psm1
+
+<#
+.SYNOPSIS
+    Gets a project by its nickname.
+.DESCRIPTION
+    Retrieves a project object by its nickname identifier.
+.PARAMETER Nickname
+    The project nickname to find.
+.EXAMPLE
+    $project = Get-TrackerProject -Nickname "WEBSITE"
+.OUTPUTS
+    PSObject representing the project, or $null if not found
+#>
+function Get-TrackerProject {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Nickname
+    )
+    
+    try {
+        $config = Get-AppConfig
+        $ProjectsFilePath = $config.ProjectsFullPath
+        
+        # Get existing projects
+        $projects = @(Get-EntityData -FilePath $ProjectsFilePath -RequiredHeaders $PROJECTS_HEADERS)
+        
+        # Find the project by nickname
+        $project = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+        
+        if (-not $project) {
+            Write-Verbose "Project '$Nickname' not found."
+            return $null
+        }
+        
+        return $project
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Getting project by nickname" -Continue
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    Changes a project's status.
+.DESCRIPTION
+    Updates the status of a project to Active, On Hold, or Closed.
+.PARAMETER Nickname
+    The nickname of the project to update.
+.PARAMETER Status
+    The new status (Active, On Hold, Closed).
+.EXAMPLE
+    Set-TrackerProjectStatus -Nickname "WEBSITE" -Status "Closed"
+.OUTPUTS
+    Boolean indicating success or failure
+#>
+function Set-TrackerProjectStatus {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Nickname,
+        
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("Active", "On Hold", "Closed")]
+        [string]$Status
+    )
+    
+    Write-AppLog "Changing status for project '$Nickname' to '$Status'" -Level INFO
+    Render-Header -Title "Change Project Status"
+    
+    try {
+        $config = Get-AppConfig
+        $ProjectsFilePath = $config.ProjectsFullPath
+        
+        # Get existing projects
+        $projects = @(Get-EntityData -FilePath $ProjectsFilePath -RequiredHeaders $PROJECTS_HEADERS)
+        $project = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+        
+        if (-not $project) {
+            Write-ColorText "Error: Project '$Nickname' not found." -ForegroundColor (Get-CurrentTheme).Colors.Error
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
+        
+        # Update status and closed date if applicable
+        $oldStatus = $project.Status
+        $project.Status = $Status
+        
+        if ($Status -eq "Closed" -and (-not $project.ClosedDate -or [string]::IsNullOrWhiteSpace($project.ClosedDate))) {
+            $project.ClosedDate = (Get-Date).ToString("yyyyMMdd")
+            Write-Verbose "Set closed date to $($project.ClosedDate)"
+        } elseif ($Status -ne "Closed") {
+            $project.ClosedDate = ""
+        }
+        
+        # Save projects
+        if (Save-EntityData -Data $projects -FilePath $ProjectsFilePath -RequiredHeaders $PROJECTS_HEADERS) {
+            Write-ColorText "Project status changed from '$oldStatus' to '$Status' successfully!" -ForegroundColor (Get-CurrentTheme).Colors.Success
+            
+            # Log success
+            Write-AppLog "Updated project status: $Nickname from '$oldStatus' to '$Status'" -Level INFO
+            
+            Read-Host "Press Enter to continue..."
+            return $true
+        } else {
+            Write-ColorText "Failed to save project status change." -ForegroundColor (Get-CurrentTheme).Colors.Error
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Changing project status" -Continue
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Updates a project's cumulative hours.
+.DESCRIPTION
+    Recalculates a project's cumulative hours based on time entries.
+.PARAMETER Nickname
+    The nickname of the project to update.
+.EXAMPLE
+    Update-TrackerProjectHours -Nickname "WEBSITE"
+.OUTPUTS
+    Boolean indicating success or failure
+#>
+function Update-TrackerProjectHours {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Nickname
+    )
+    
+    Write-AppLog "Updating hours for project: $Nickname" -Level INFO
+    
+    try {
+        # Use the imported Core module function
+        Update-CumulativeHours -Nickname $Nickname
+        
+        # Get the project to display updated hours
+        $config = Get-AppConfig
+        $ProjectsFilePath = $config.ProjectsFullPath
+        
+        $projects = @(Get-EntityData -FilePath $ProjectsFilePath)
+        $project = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+        
+        if ($project) {
+            Write-ColorText "Updated hours for project '$Nickname': $($project.CumulativeHrs)" -ForegroundColor (Get-CurrentTheme).Colors.Success
+            return $true
+        } else {
+            Write-ColorText "Project '$Nickname' not found." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+            return $false
+        }
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Updating project hours" -Continue
+        return $false
+    }
+}
+
+
+
 
 # Ensure this is in the Export-ModuleMember line at the end of the file:
 # Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, Update-TrackerProjectHours, Show-ProjectMenu
