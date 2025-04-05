@@ -35,7 +35,13 @@ if ($env:PROJECTTRACKER_DISABLE_ANSI -eq "true") {
 }
 
 # --- Application Initialization ---
+      # --- Application Initialization ---
 function Initialize-Application {
+    param(
+        # Add param block to accept the flag
+        [Parameter(Mandatory=$false)]
+        [bool]$DisableAnsiColors = $false
+    )
     try {
         Write-AppLog "Initializing application..." -Level INFO
 
@@ -50,21 +56,53 @@ function Initialize-Application {
         Set-CurrentTheme -ThemeName $config.DefaultTheme # From Core Module
 
         # Handle ANSI override if specified via command line or environment
-        if ($global:FORCE_DISABLE_ANSI) {
+        # Use the passed parameter $DisableAnsiColors
+        if ($DisableAnsiColors) {
+            Write-AppLog "ANSI colors explicitly disabled." -Level INFO
             # Since we can't directly modify $script:useAnsiColors in the module,
             # we need to update the theme to one that has UseAnsiColors = $false
             $theme = Get-CurrentTheme
-            $theme.UseAnsiColors = $false
-            Set-CurrentTheme -ThemeObject $theme
+            if ($theme.UseAnsiColors) { # Only modify if currently true
+                $theme.UseAnsiColors = $false
+                # Re-apply the modified theme object
+                Set-CurrentTheme -ThemeObject $theme
+                Write-AppLog "Theme updated to disable ANSI colors." -Level INFO
+            }
         }
 
-        Write-AppLog "Initialization complete. Using Theme: $($config.DefaultTheme)" -Level INFO
+        Write-AppLog "Initialization complete. Using Theme: $((Get-CurrentTheme).Name)" -Level INFO
         return $true
     } catch {
         Handle-Error -ErrorRecord $_ -Context "Application Initialization"
         return $false
     }
 }
+
+# --- Main Script Logic ---
+
+# Process command line arguments
+$disableAnsi = $false
+foreach ($arg in $args) {
+    if ($arg -eq "-DisableAnsi") {
+        $disableAnsi = $true
+        Write-Host "ANSI colors disabled via command line." -ForegroundColor Yellow
+    }
+}
+
+# Emergency ANSI override via environment variable
+if ($env:PROJECTTRACKER_DISABLE_ANSI -eq "true") {
+    $disableAnsi = $true
+    Write-Host "ANSI colors disabled via environment variable." -ForegroundColor Yellow
+}
+
+# Call Initialize-Application and pass the flag
+if (-not (Initialize-Application -DisableAnsiColors:$disableAnsi)) {
+    Write-Host "Application failed to initialize. Exiting." -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+# --- Main Menu Loop ---
 
 # --- Main Menu Definition ---
 function Show-MainMenu {
