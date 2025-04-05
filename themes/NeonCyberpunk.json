@@ -1,0 +1,54 @@
+{
+  "Table": {
+    "HeaderStyle": "Bold",
+    "CellPadding": 1,
+    "Chars": {
+      "BottomRight": "◤",
+      "CrossJunction": "┼",
+      "Vertical": "│",
+      "TopJunction": "┬",
+      "Horizontal": "─",
+      "TopRight": "◣",
+      "BottomLeft": "◥",
+      "RightJunction": "┤",
+      "TopLeft": "◢",
+      "LeftJunction": "├",
+      "BottomJunction": "┴"
+    },
+    "RowSeparator": true
+  },
+  "Name": "NeonCyberpunk",
+  "Description": "Neon-inspired cyberpunk theme with bright colors and Unicode borders",
+  "ProgressBar": {
+    "RightCap": "】",
+    "EmptyChar": "░",
+    "FilledChar": "█",
+    "LeftCap": "【"
+  },
+  "Menu": {
+    "SelectedPrefix": "▶",
+    "UnselectedPrefix": " "
+  },
+  "Author": "System",
+  "Colors": {
+    "Error": "Red",
+    "Overdue": "Red",
+    "Accent2": "Cyan",
+    "Warning": "Yellow",
+    "TableBorder": "Magenta",
+    "Accent1": "Yellow",
+    "DueSoon": "Yellow",
+    "Normal": "Cyan",
+    "Completed": "DarkGray",
+    "Success": "Green",
+    "Header": "Magenta"
+  },
+  "Version": "1.0",
+  "UseAnsiColors": true,
+  "Headers": {
+    "Corners": "◢◣◥◤",
+    "Style": "Gradient",
+    "GradientChars": "▒░  ",
+    "BorderChar": "═"
+  }
+}

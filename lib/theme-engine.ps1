@@ -897,7 +897,7 @@ function Safe-TruncateString {
     
     $visibleLength = Get-VisibleStringLength -Text $Text
     
-    if ($visibleLength <= $MaxLength) {
+    if ($visibleLength -le $MaxLength) {
         return $Text # Already fits, no truncation needed
     }
     
@@ -907,7 +907,7 @@ function Safe-TruncateString {
         
         if (-not $hasAnsi) {
             # No ANSI codes, simple truncation
-            if ($MaxLength <= 3) {
+            if ($MaxLength -le 3) {
                 return "..."
             }
             return $Text.Substring(0, [Math]::Min($Text.Length, $MaxLength - 3)) + "..."
@@ -956,7 +956,7 @@ function Safe-TruncateString {
         
         foreach ($seq in $ansiSequences) {
             # Only include sequences that appear before the truncation point
-            if ($seq.Index <= $MaxLength - 3) {
+            if ($seq.Index -le $MaxLength - 3) {
                 # Add text up to the sequence position
                 if ($seq.Index > $currentPosition) {
                     $result += $truncatedVisible.Substring($currentPosition, $seq.Index - $currentPosition)
@@ -969,7 +969,7 @@ function Safe-TruncateString {
         }
         
         # Add remaining visible text
-        if ($currentPosition < $truncatedVisible.Length) {
+        if ($currentPosition -lt $truncatedVisible.Length) {
             $result += $truncatedVisible.Substring($currentPosition)
         }
         
@@ -983,7 +983,7 @@ function Safe-TruncateString {
         # Simple truncation without ANSI preservation
         $cleanText = Remove-AnsiCodes -Text $Text
         
-        if ($MaxLength <= 3) {
+        if ($MaxLength -le 3) {
             return "..."
         }
         

@@ -1,0 +1,53 @@
+{
+  "Table": {
+    "HeaderStyle": "Normal",
+    "CellPadding": 1,
+    "Chars": {
+      "BottomRight": "+",
+      "CrossJunction": "+",
+      "Vertical": "|",
+      "TopJunction": "+",
+      "Horizontal": "-",
+      "TopRight": "+",
+      "BottomLeft": "+",
+      "RightJunction": "+",
+      "TopLeft": "+",
+      "LeftJunction": "+",
+      "BottomJunction": "+"
+    },
+    "RowSeparator": false
+  },
+  "Name": "Default",
+  "Description": "Default system theme",
+  "ProgressBar": {
+    "RightCap": "]",
+    "EmptyChar": " ",
+    "FilledChar": "=",
+    "LeftCap": "["
+  },
+  "Menu": {
+    "SelectedPrefix": "",
+    "UnselectedPrefix": ""
+  },
+  "Author": "System",
+  "Colors": {
+    "Error": "Red",
+    "Overdue": "Red",
+    "Accent2": "Cyan",
+    "Warning": "Yellow",
+    "TableBorder": "Gray",
+    "Accent1": "Yellow",
+    "DueSoon": "Yellow",
+    "Normal": "White",
+    "Completed": "DarkGray",
+    "Success": "Green",
+    "Header": "Cyan"
+  },
+  "Version": "1.0",
+  "UseAnsiColors": false,
+  "Headers": {
+    "Corners": "++++",
+    "Style": "Simple",
+    "BorderChar": "="
+  }
+}

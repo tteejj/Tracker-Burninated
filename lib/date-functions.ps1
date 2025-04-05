@@ -511,8 +511,8 @@ function Get-RelativeWeekDescription {
     if ($weekDiff == 0) { return "This Week" }
     if ($weekDiff == 1) { return "Next Week" }
     if ($weekDiff == -1) { return "Last Week" }
-    if ($weekDiff > 1) { return "$weekDiff weeks ahead" }
-    if ($weekDiff < -1) { return "$([Math]::Abs($weekDiff)) weeks ago" }
+    if ($weekDiff -gt 1) { return "$weekDiff weeks ahead" }
+    if ($weekDiff -lt -1) { return "$([Math]::Abs($weekDiff)) weeks ago" }
     
     # Shouldn't get here, but just in case
     return "Week of $($WeekStartDate.ToString('MMM d'))"
