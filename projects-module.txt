@@ -1,0 +1,802 @@
+# ProjectTracker.Projects.psm1
+# Module for Project Management functionality in Project Tracker
+
+#region Project Module Functions
+
+<#
+.SYNOPSIS
+    Shows a list of projects.
+.DESCRIPTION
+    Displays a formatted table of projects, with filtering options for active or all projects.
+.PARAMETER IncludeAll
+    If specified, shows all projects including closed ones. Otherwise, shows only active projects.
+.EXAMPLE
+    Show-ProjectList
+    (Shows only active projects)
+.EXAMPLE
+    Show-ProjectList -IncludeAll
+    (Shows all projects including closed ones)
+.OUTPUTS
+    System.Array - The array of displayed projects
+#>
+function Show-ProjectList {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [switch]$IncludeAll
+    )
+    
+    $viewTitle = if ($IncludeAll) { "All Projects" } else { "Active Projects" }
+    Render-Header -Title $viewTitle
+    
+    # Get configuration
+    $config = Get-AppConfig
+    $theme = Get-CurrentTheme
+    
+    # Get projects from data file
+    $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
+    
+    if (-not $IncludeAll) {
+        $projects = $projects | Where-Object {
+            $_.Status -ne "Closed" -and [string]::IsNullOrWhiteSpace($_.ClosedDate)
+        }
+    }
+    
+    if ($projects.Count -eq 0) {
+        Write-ColorText "No projects found." -ForegroundColor $theme.Colors.Warning
+        Read-Host "Press Enter to continue..."
+        return @()
+    }
+    
+    # Update hours before display
+    $projects | ForEach-Object { Update-CumulativeHours -Nickname $_.Nickname }
+    
+    # Re-get projects after update
+    $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
+    
+    if (-not $IncludeAll) {
+        $projects = $projects | Where-Object {
+            $_.Status -ne "Closed" -and [string]::IsNullOrWhiteSpace($_.ClosedDate)
+        }
+    }
+    
+    # Define columns to show
+    $columnsToShow = @("Nickname", "FullProjectName", "DateAssigned", "DueDate", "BFDate", "CumulativeHrs", "Note", "Status")
+    
+    # Define headers
+    $tableHeaders = @{
+        FullProjectName = "Full Name"
+        DateAssigned = "Assigned"
+        DueDate = "Due"
+        BFDate = "BF Date"
+        CumulativeHrs = "Hrs"
+        Note = "Notes"
+    }
+    
+    # Get today's date for colorization
+    $today = (Get-Date).Date
+    
+    # Define formatters
+    $tableFormatters = @{
+        DateAssigned = { param($val) Convert-InternalDateToDisplay -InternalDate $val }
+        DueDate = { param($val) Convert-InternalDateToDisplay -InternalDate $val }
+        BFDate = { param($val) Convert-InternalDateToDisplay -InternalDate $val }
+        CumulativeHrs = {
+            param($val)
+            try {
+                [double]::Parse($val).ToString("F1")
+            } catch {
+                $val
+            }
+        }
+    }
+    
+    # Define row colorizer
+    $rowColorizer = {
+        param($item, $rowIndex)
+        $status = if ([string]::IsNullOrWhiteSpace($item.Status)) { "Active" } else { $item.Status }
+        $themeColors = (Get-CurrentTheme).Colors
+        
+        if ($status -eq "Closed") {
+            return $themeColors.Completed
+        }
+        
+        if ($status -eq "On Hold") {
+            return $themeColors.Warning
+        }
+        
+        try {
+            $dueDate = $item.DueDate
+            if ($dueDate -match '^\d{8}$') {
+                $dt = [datetime]::ParseExact($dueDate, "yyyyMMdd", $null).Date
+                if ($dt -lt $today) {
+                    return $themeColors.Overdue
+                }
+                if (($dt - $today).Days -le 7) {
+                    return $themeColors.DueSoon
+                }
+            }
+        } catch {}
+        
+        return $themeColors.Normal
+    }
+    
+    # Show the table
+    $result = Show-Table -Data $projects -Columns $columnsToShow -Headers $tableHeaders -Formatters $tableFormatters -RowColorizer $rowColorizer
+    
+    # Log the operation
+    Write-AppLog -Message "Displayed $($projects.Count) projects (IncludeAll: $IncludeAll)" -Level INFO
+    
+    Read-Host "Press Enter to continue..."
+    
+    # Return the projects array
+    return $projects
+}
+
+<#
+.SYNOPSIS
+    Creates a new project.
+.DESCRIPTION
+    Creates a new project with the specified properties, or prompts the user for input
+    if properties are not provided.
+.PARAMETER ProjectData
+    Optional hashtable containing project properties. If not provided, the user will be prompted.
+.EXAMPLE
+    New-TrackerProject
+    (Prompts user for project details)
+.EXAMPLE
+    $data = @{
+        Nickname = "WEBSITE"
+        FullProjectName = "Company Website Redesign"
+        ID1 = "ABC"
+        ID2 = "123"
+    }
+    New-TrackerProject -ProjectData $data
+.OUTPUTS
+    System.Boolean - True if the project was created successfully, False otherwise
+#>
+function New-TrackerProject {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [hashtable]$ProjectData
+    )
+    
+    # Get configuration
+    $config = Get-AppConfig
+    
+    Render-Header -Title "Create New Project"
+    
+    # Initialize new project
+    $newProj = if ($ProjectData) { $ProjectData.Clone() } else { @{} }
+    
+    # If no project data provided, prompt for input
+    if (-not $ProjectData) {
+        # Prompt for Nickname
+        while (-not $newProj.ContainsKey("Nickname") -or [string]::IsNullOrWhiteSpace($newProj.Nickname)) {
+            $newProj.Nickname = Read-UserInput -Prompt "Enter Nickname (unique, max 15 chars)"
+            
+            if ([string]::IsNullOrWhiteSpace($newProj.Nickname)) {
+                Write-ColorText "Nickname cannot be empty." -ForegroundColor (Get-CurrentTheme).Colors.Error
+                $newProj.Remove("Nickname")
+                continue
+            }
+            
+            if ($newProj.Nickname.Length -gt 15) {
+                $newProj.Nickname = $newProj.Nickname.Substring(0, 15)
+                Write-ColorText "Nickname truncated to 15 chars." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+            }
+            
+            # Ensure projects is always an array
+            $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
+            if ($projects | Where-Object { $_.Nickname -eq $newProj.Nickname }) {
+                Write-ColorText "Nickname '$($newProj.Nickname)' already exists." -ForegroundColor (Get-CurrentTheme).Colors.Error
+                $newProj.Remove("Nickname")
+            }
+        }
+        
+        # Prompt for FullProjectName
+        $newProj.FullProjectName = Read-UserInput -Prompt "Enter Full Name"
+        
+        if ([string]::IsNullOrWhiteSpace($newProj.FullProjectName)) {
+            Write-ColorText "Full Name cannot be empty." -ForegroundColor (Get-CurrentTheme).Colors.Error
+            Read-Host "Press Enter to start over..."
+            return $false
+        }
+        
+        # Prompt for optional fields
+        $newProj.ID1 = Read-UserInput -Prompt "Enter ID1 (e.g., Client Code)"
+        $newProj.ID2 = Read-UserInput -Prompt "Enter ID2 (e.g., Engagement Code)"
+        
+        # Prompt for dates
+        $assignedDateInternal = $null
+        while ($assignedDateInternal -eq $null) {
+            $assignedDateInput = Read-UserInput -Prompt "Enter Assigned Date (MM/DD/YYYY, Enter=Today)"
+            $assignedDateInternal = Parse-DateInput -InputDate $assignedDateInput -AllowEmptyForToday
+            
+            if ($assignedDateInternal -eq "CANCEL") {
+                Write-ColorText "Cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "..."
+                return $false
+            }
+        }
+        
+        $newProj.DateAssigned = $assignedDateInternal # Store in internal format
+        
+        # Calculate Due Date
+        $dtAssigned = [datetime]::ParseExact($assignedDateInternal, "yyyyMMdd", $null)
+        $dtDue = $dtAssigned.AddDays(42)
+        $newProj.DueDate = $dtDue.ToString("yyyyMMdd") # Store in internal format
+        
+        Write-ColorText "Due Date calculated: $(Convert-InternalDateToDisplay -InternalDate $newProj.DueDate)" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
+        
+        # BF Date
+        $bfDateInternal = $null
+        while ($bfDateInternal -eq $null) {
+            $bfDateInput = Read-UserInput -Prompt "Enter BF Date (MM/DD/YYYY, Enter=DueDate)"
+            
+            if ([string]::IsNullOrWhiteSpace($bfDateInput)) {
+                $bfDateInternal = $dtDue.ToString("yyyyMMdd") # Use internal format from calculated due date
+                break
+            }
+            
+            $bfDateInternal = Parse-DateInput -InputDate $bfDateInput
+            
+            if ($bfDateInternal -eq "CANCEL") {
+                Write-ColorText "Cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "..."
+                return $false
+            }
+        }
+        
+        $newProj.BFDate = $bfDateInternal # Store in internal format
+        
+        # Prompt for notes and folder
+        $newProj.Note = Read-UserInput -Prompt "Enter Note (optional)"
+        $newProj.ProjFolder = Read-UserInput -Prompt "Enter Project Folder Path (optional)"
+    }
+    
+    # Set default values for required fields if not provided
+    if (-not $newProj.ContainsKey("ClosedDate")) { $newProj.ClosedDate = "" }
+    if (-not $newProj.ContainsKey("Status")) { $newProj.Status = (Get-AppConfig).DefaultProjectStatus }
+    if (-not $newProj.ContainsKey("CumulativeHrs")) { $newProj.CumulativeHrs = "0.0" }
+    
+    # Get projects as array
+    $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
+    
+    # Create the new project as a PSCustomObject
+    $newProjObject = [PSCustomObject]$newProj
+    
+    # Create a new array with all items including the new project
+    $updatedProjects = @($projects) + $newProjObject
+    
+    # Save the updated projects
+    if (Save-EntityData -Data $updatedProjects -FilePath $config.ProjectsFullPath) {
+        Write-ColorText "Project '$($newProj.Nickname)' created successfully!" -ForegroundColor (Get-CurrentTheme).Colors.Success
+        
+        # Log the operation
+        Write-AppLog -Message "Created new project: $($newProj.Nickname)" -Level INFO
+        
+        # Add initial todo using internal format for DueDate if todos module is loaded
+        if (Get-Command "New-TrackerTodoItem" -ErrorAction SilentlyContinue) {
+            $todoDescription = if ([string]::IsNullOrWhiteSpace($newProj.Note)) {
+                "$($newProj.Nickname)"
+            } else {
+                "$($newProj.Note)"
+            }
+            
+            # Call the todo function if available
+            New-TrackerTodoItem -TodoData @{
+                Nickname = $newProj.Nickname
+                TaskDescription = $todoDescription
+                DueDate = $newProj.BFDate
+                Importance = "Normal"
+            } -Silent
+        }
+        
+        Read-Host "Press Enter to continue..."
+        return $true
+    } else {
+        Write-ColorText "Failed to save new project." -ForegroundColor (Get-CurrentTheme).Colors.Error
+        Read-Host "Press Enter to continue..."
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Updates an existing project.
+.DESCRIPTION
+    Updates an existing project with new values, either from provided data or by prompting the user.
+.PARAMETER Nickname
+    The nickname of the project to update.
+.PARAMETER ProjectData
+    Optional hashtable containing the new project properties. If not provided, the user will be prompted.
+.EXAMPLE
+    Update-TrackerProject -Nickname "WEBSITE"
+    (Prompts user for updated values)
+.EXAMPLE
+    Update-TrackerProject -Nickname "WEBSITE" -ProjectData @{ Note = "Updated project notes"; Status = "On Hold" }
+.OUTPUTS
+    System.Boolean - True if the project was updated successfully, False otherwise
+#>
+function Update-TrackerProject {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Nickname,
+        
+        [Parameter(Mandatory = $false)]
+        [hashtable]$ProjectData
+    )
+    
+    # Get configuration
+    $config = Get-AppConfig
+    
+    Render-Header -Title "Update Project Details"
+    
+    # Get the project to update
+    $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
+    $originalProject = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+    
+    if (-not $originalProject) {
+        Write-ColorText "Error: Project '$Nickname' not found." -ForegroundColor (Get-CurrentTheme).Colors.Error
+        Read-Host "Press Enter to continue..."
+        return $false
+    }
+    
+    # Create a copy of the original project
+    $updatedProj = $originalProject | Select-Object *
+    
+    # If project data is provided, update the fields
+    if ($ProjectData) {
+        foreach ($key in $ProjectData.Keys) {
+            if ($updatedProj.PSObject.Properties.Name -contains $key) {
+                $updatedProj.$key = $ProjectData[$key]
+            }
+        }
+        
+        # Handle status changes
+        if ($ProjectData.ContainsKey("Status")) {
+            if ($ProjectData.Status -eq "Closed" -and [string]::IsNullOrWhiteSpace($updatedProj.ClosedDate)) {
+                $updatedProj.ClosedDate = (Get-Date).ToString("yyyyMMdd")
+            } elseif ($ProjectData.Status -ne "Closed") {
+                $updatedProj.ClosedDate = ""
+            }
+        }
+    } else {
+        # Interactive update - prompt user for each field
+        Write-ColorText "`nUpdating Project: $($updatedProj.Nickname)" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
+        Write-ColorText "Enter new value or press Enter to keep current. Enter '0' to cancel." -ForegroundColor (Get-CurrentTheme).Colors.Accent2
+        
+        # Helper function for reading field updates
+        function Read-UpdateField {
+            param($FieldName, [ref]$ProjectObject, [switch]$IsDate)
+            
+            $currentValue = $ProjectObject.Value.$FieldName
+            $displayCurrent = if ($IsDate) { Convert-InternalDateToDisplay -InternalDate $currentValue } else { $currentValue }
+            $input = Read-UserInput -Prompt "$FieldName (current: $displayCurrent)"
+            
+            if ($input -eq '0') {
+                return $false
+            } # Cancel
+            
+            if (-not [string]::IsNullOrWhiteSpace($input) -and $input -ne $currentValue) {
+                if ($IsDate) {
+                    $internalDate = Parse-DateInput -InputDate $input
+                    if ($internalDate -and $internalDate -ne "CANCEL") {
+                        $ProjectObject.Value.$FieldName = $internalDate # Store internal format
+                    } elseif ($internalDate -ne "CANCEL") {
+                        Write-ColorText "Invalid date format. Keeping original." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                    } else {
+                        return $false
+                    } # Cancelled during date parse
+                } else {
+                    $ProjectObject.Value.$FieldName = $input
+                }
+            }
+            
+            return $true # Continue
+        }
+        
+        # Prompt for updates to each field
+        if (-not (Read-UpdateField -FieldName "FullProjectName" -ProjectObject ([ref]$updatedProj))) {
+            return $false
+        }
+        
+        if (-not (Read-UpdateField -FieldName "ID1" -ProjectObject ([ref]$updatedProj))) {
+            return $false
+        }
+        
+        if (-not (Read-UpdateField -FieldName "ID2" -ProjectObject ([ref]$updatedProj))) {
+            return $false
+        }
+        
+        if (-not (Read-UpdateField -FieldName "DateAssigned" -ProjectObject ([ref]$updatedProj) -IsDate)) {
+            return $false
+        }
+        
+        if (-not (Read-UpdateField -FieldName "DueDate" -ProjectObject ([ref]$updatedProj) -IsDate)) {
+            return $false
+        }
+        
+        if (-not (Read-UpdateField -FieldName "BFDate" -ProjectObject ([ref]$updatedProj) -IsDate)) {
+            return $false
+        }
+        
+        if (-not (Read-UpdateField -FieldName "Note" -ProjectObject ([ref]$updatedProj))) {
+            return $false
+        }
+        
+        if (-not (Read-UpdateField -FieldName "ProjFolder" -ProjectObject ([ref]$updatedProj))) {
+            return $false
+        }
+        
+        # Status update
+        $currentStatus = if ([string]::IsNullOrWhiteSpace($updatedProj.Status)) { "Active" } else { $updatedProj.Status }
+        
+        Write-ColorText "Current Status: $currentStatus" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
+        Write-ColorText "[1] Active" -ForegroundColor (Get-CurrentTheme).Colors.Success
+        Write-ColorText "[2] Closed" -ForegroundColor (Get-CurrentTheme).Colors.Completed
+        Write-ColorText "[3] On Hold" -ForegroundColor (Get-CurrentTheme).Colors.Warning
+        Write-ColorText "[0] Keep Current" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
+        
+        $statusChoice = Read-UserInput -Prompt "Select new status"
+        
+        switch ($statusChoice) {
+            '1' { $updatedProj.Status = "Active" }
+            '2' { $updatedProj.Status = "Closed" }
+            '3' { $updatedProj.Status = "On Hold" }
+            '0' {} '' {} default {
+                Write-ColorText "Invalid status choice. Keeping original." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+            }
+        }
+        
+        # Update ClosedDate based on Status
+        if ($updatedProj.Status -eq "Closed" -and [string]::IsNullOrWhiteSpace($updatedProj.ClosedDate)) {
+            $updatedProj.ClosedDate = (Get-Date).ToString("yyyyMMdd") # Store internal format
+        } elseif ($updatedProj.Status -ne "Closed") {
+            $updatedProj.ClosedDate = ""
+        }
+    }
+    
+    # Find and replace safely using array indices
+    $updated = $false
+    $updatedProjects = @()
+    
+    for ($i = 0; $i -lt $projects.Count; $i++) {
+        if ($projects[$i].Nickname -eq $originalProject.Nickname) {
+            $updatedProjects += $updatedProj
+            $updated = $true
+        } else {
+            $updatedProjects += $projects[$i]
+        }
+    }
+    
+    if ($updated) {
+        if (Save-EntityData -Data $updatedProjects -FilePath $config.ProjectsFullPath) {
+            Write-ColorText "Project '$($updatedProj.Nickname)' updated successfully!" -ForegroundColor (Get-CurrentTheme).Colors.Success
+            
+            # Log the operation
+            Write-AppLog -Message "Updated project: $($updatedProj.Nickname)" -Level INFO
+            
+            # Update related todo if BFDate or Note changed
+            if (($updatedProj.BFDate -ne $originalProject.BFDate) -or ($updatedProj.Note -ne $originalProject.Note)) {
+                if (Get-Command "Update-TrackerTodoItem" -ErrorAction SilentlyContinue) {
+                    # Find and update associated todos through the Todos module
+                    $todos = @(Get-EntityData -FilePath $config.TodosFullPath)
+                    foreach ($todo in $todos) {
+                        if ($todo.Nickname -eq $updatedProj.Nickname -and 
+                            ($todo.TaskDescription -like "*follow up*" -or 
+                             $todo.TaskDescription -match "Initial setup/follow up")) {
+                            
+                            $todoUpdates = @{}
+                            
+                            if (-not [string]::IsNullOrWhiteSpace($updatedProj.BFDate)) {
+                                if ($todo.DueDate -ne $updatedProj.BFDate) {
+                                    $todoUpdates.DueDate = $updatedProj.BFDate
+                                }
+                            }
+                            
+                            if (-not [string]::IsNullOrWhiteSpace($updatedProj.Note)) {
+                                $newDesc = "Follow up: $($updatedProj.Note)"
+                                if ($todo.TaskDescription -ne $newDesc) {
+                                    $todoUpdates.TaskDescription = $newDesc
+                                }
+                            }
+                            
+                            if ($todoUpdates.Keys.Count -gt 0) {
+                                Update-TrackerTodoItem -ID $todo.ID -TodoData $todoUpdates -Silent
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Read-Host "Press Enter to continue..."
+            return $true
+        } else {
+            Write-ColorText "Failed to save updated project." -ForegroundColor (Get-CurrentTheme).Colors.Error
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
+    } else {
+        Write-ColorText "No changes detected or project not found." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+        Read-Host "Press Enter to continue..."
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Removes a project.
+.DESCRIPTION
+    Deletes a project and optionally its related todos and time entries.
+.PARAMETER Nickname
+    The nickname of the project to remove.
+.PARAMETER Force
+    If specified, skips the confirmation prompt.
+.EXAMPLE
+    Remove-TrackerProject -Nickname "WEBSITE"
+.EXAMPLE
+    Remove-TrackerProject -Nickname "WEBSITE" -Force
+.OUTPUTS
+    System.Boolean - True if the project was removed successfully, False otherwise
+#>
+function Remove-TrackerProject {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Nickname,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$Force
+    )
+    
+    # Get configuration
+    $config = Get-AppConfig
+    
+    Render-Header -Title "Delete Project"
+    
+    # Verify project exists
+    $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
+    $project = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+    
+    if (-not $project) {
+        Write-ColorText "Project '$Nickname' not found." -ForegroundColor (Get-CurrentTheme).Colors.Error
+        Read-Host "Press Enter to continue..."
+        return $false
+    }
+    
+    # Confirm deletion
+    if (-not $Force) {
+        Write-ColorText "WARNING: This will permanently delete project '$Nickname'!" -ForegroundColor (Get-CurrentTheme).Colors.Error
+        Write-ColorText "This action cannot be undone." -ForegroundColor (Get-CurrentTheme).Colors.Error
+        
+        $confirm = Read-UserInput -Prompt "Type the project nickname to confirm deletion"
+        
+        if ($confirm -ne $Nickname) {
+            Write-ColorText "Deletion cancelled (confirmation did not match)." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
+    }
+    
+    # Remove the project
+    $newProjects = $projects | Where-Object { $_.Nickname -ne $Nickname }
+    
+    # Check if project was found
+    if ($newProjects.Count -eq $projects.Count) {
+        Write-ColorText "Project not found in database." -ForegroundColor (Get-CurrentTheme).Colors.Error
+        Read-Host "Press Enter to continue..."
+        return $false
+    }
+    
+    # Save the updated projects list
+    if (Save-EntityData -Data $newProjects -FilePath $config.ProjectsFullPath) {
+        # Also remove related todos
+        $todos = @(Get-EntityData -FilePath $config.TodosFullPath)
+        $newTodos = $todos | Where-Object { $_.Nickname -ne $Nickname }
+        
+        if ($newTodos.Count -ne $todos.Count) {
+            Save-EntityData -Data $newTodos -FilePath $config.TodosFullPath | Out-Null
+        }
+        
+        # Also remove related time entries
+        $timeEntries = @(Get-EntityData -FilePath $config.TimeLogFullPath)
+        $newTimeEntries = $timeEntries | Where-Object { $_.Nickname -ne $Nickname }
+        
+        if ($newTimeEntries.Count -ne $timeEntries.Count) {
+            Save-EntityData -Data $newTimeEntries -FilePath $config.TimeLogFullPath | Out-Null
+        }
+        
+        # Log the operation
+        Write-AppLog -Message "Deleted project: $Nickname" -Level INFO
+        
+        Write-ColorText "Project '$Nickname' has been deleted." -ForegroundColor (Get-CurrentTheme).Colors.Success
+        Read-Host "Press Enter to continue..."
+        return $true
+    } else {
+        Write-ColorText "Failed to delete project." -ForegroundColor (Get-CurrentTheme).Colors.Error
+        Read-Host "Press Enter to continue..."
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets a project by nickname.
+.DESCRIPTION
+    Retrieves a project object by its nickname.
+.PARAMETER Nickname
+    The nickname of the project to retrieve.
+.EXAMPLE
+    $project = Get-TrackerProject -Nickname "WEBSITE"
+.OUTPUTS
+    System.Object - The project object if found, $null otherwise
+#>
+function Get-TrackerProject {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Nickname
+    )
+    
+    # Get configuration
+    $config = Get-AppConfig
+    
+    # Get projects
+    $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
+    
+    # Find and return the project
+    $project = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+    
+    if ($project) {
+        # Log the operation
+        Write-AppLog -Message "Retrieved project: $Nickname" -Level DEBUG
+        return $project
+    } else {
+        # Log the failure
+        Write-AppLog -Message "Project not found: $Nickname" -Level WARNING
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+    Sets a project's status.
+.DESCRIPTION
+    Changes the status of a project and updates related fields.
+.PARAMETER Nickname
+    The nickname of the project to update.
+.PARAMETER Status
+    The new status for the project (Active, On Hold, Closed).
+.EXAMPLE
+    Set-TrackerProjectStatus -Nickname "WEBSITE" -Status "Closed"
+.OUTPUTS
+    System.Boolean - True if the status was updated successfully, False otherwise
+#>
+function Set-TrackerProjectStatus {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Nickname,
+        
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Active", "On Hold", "Closed")]
+        [string]$Status
+    )
+    
+    # Get configuration
+    $config = Get-AppConfig
+    
+    Render-Header -Title "Change Project Status"
+    
+    # Get the project
+    $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
+    $project = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+    
+    if (-not $project) {
+        Write-ColorText "Project '$Nickname' not found." -ForegroundColor (Get-CurrentTheme).Colors.Error
+        Read-Host "Press Enter to continue..."
+        return $false
+    }
+    
+    # Get current status for display
+    $currentStatus = $project.Status
+    if ([string]::IsNullOrWhiteSpace($currentStatus)) {
+        $currentStatus = if ([string]::IsNullOrWhiteSpace($project.ClosedDate)) {
+            "Active"
+        } else {
+            "Closed"
+        }
+    }
+    
+    Write-ColorText "Project: $($project.Nickname) - $($project.FullProjectName)" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
+    Write-ColorText "Current Status: $currentStatus" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
+    
+    # Update status
+    $project.Status = $Status
+    
+    # Update related fields
+    if ($Status -eq "Closed") {
+        if ([string]::IsNullOrWhiteSpace($project.ClosedDate)) {
+            $project.ClosedDate = (Get-Date).ToString("yyyyMMdd")
+        }
+        
+        Write-ColorText "Setting project status to CLOSED with completion date: $(Convert-InternalDateToDisplay -InternalDate $project.ClosedDate)" -ForegroundColor (Get-CurrentTheme).Colors.Warning
+    } else {
+        if (-not [string]::IsNullOrWhiteSpace($project.ClosedDate)) {
+            $project.ClosedDate = ""
+            Write-ColorText "Setting project status to '$Status' and clearing completion date." -ForegroundColor (Get-CurrentTheme).Colors.Success
+        } else {
+            Write-ColorText "Setting project status to '$Status'." -ForegroundColor (Get-CurrentTheme).Colors.Success
+        }
+    }
+    
+    # Create new array to avoid reference issues
+    $updatedProjects = @()
+    foreach ($p in $projects) {
+        if ($p.Nickname -eq $Nickname) {
+            $updatedProjects += $project
+        } else {
+            $updatedProjects += $p
+        }
+    }
+    
+    # Save the updated projects
+    if (Save-EntityData -Data $updatedProjects -FilePath $config.ProjectsFullPath) {
+        # Log the operation
+        Write-AppLog -Message "Updated project status: $Nickname to $Status" -Level INFO
+        
+        Write-ColorText "Project status updated successfully!" -ForegroundColor (Get-CurrentTheme).Colors.Success
+        Read-Host "Press Enter to continue..."
+        return $true
+    } else {
+        Write-ColorText "Failed to save project status update." -ForegroundColor (Get-CurrentTheme).Colors.Error
+        Read-Host "Press Enter to continue..."
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Updates cumulative hours for a project.
+.DESCRIPTION
+    Recalculates and updates the cumulative hours for a project based on its time entries.
+.PARAMETER Nickname
+    The nickname of the project to update.
+.EXAMPLE
+    Update-TrackerProjectHours -Nickname "WEBSITE"
+.OUTPUTS
+    System.Boolean - True if the hours were updated successfully, False otherwise
+#>
+function Update-TrackerProjectHours {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Nickname
+    )
+    
+    # Get configuration
+    $config = Get-AppConfig
+    
+    # Call the core function
+    $result = Update-CumulativeHours -Nickname $Nickname
+    
+    # Log the operation
+    if ($result) {
+        Write-AppLog -Message "Updated cumulative hours for project: $Nickname" -Level INFO
+    } else {
+        Write-AppLog -Message "Failed to update cumulative hours for project: $Nickname" -Level WARNING
+    }
+    
+    return $result
+}
+
+#endregion Project Module Functions
+
+# Export module functions
+Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, 
+                     Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, 
+                     Update-TrackerProjectHours

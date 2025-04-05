@@ -1,0 +1,620 @@
+# tracker.ps1 - Main entry point for Project Tracker
+
+# Get the script directory
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { "." }
+
+# Process command line arguments
+$disableAnsi = $false
+foreach ($arg in $args) {
+    if ($arg -eq "-DisableAnsi") {
+        $disableAnsi = $true
+        Write-Host "ANSI colors disabled via command line." -ForegroundColor Yellow
+    }
+}
+
+# Emergency ANSI override via environment variable
+if ($env:PROJECTTRACKER_DISABLE_ANSI -eq "true") {
+    $disableAnsi = $true
+    Write-Host "ANSI colors disabled via environment variable." -ForegroundColor Yellow
+}
+
+# --- Module Import ---
+# Use relative paths for development. Adjust if installing modules globally.
+try {
+    # Import core module
+    $modulePath = Join-Path -Path $scriptDir -ChildPath "Modules\ProjectTracker.Core\ProjectTracker.Core.psd1"
+    Import-Module -Name $modulePath -ErrorAction Stop
+    
+    # Import projects module
+    $modulePath = Join-Path -Path $scriptDir -ChildPath "Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1"
+    Import-Module -Name $modulePath -ErrorAction Stop
+    
+    # Import todos module if it exists
+    $modulePath = Join-Path -Path $scriptDir -ChildPath "Modules\ProjectTracker.Todos\ProjectTracker.Todos.psd1"
+    if (Test-Path -Path $modulePath) {
+        Import-Module -Name $modulePath -ErrorAction Stop
+    }
+    
+    # Import other modules as they are created
+    # For example: Time Tracking, Calendar, etc.
+
+} catch {
+    Write-Host "ERROR: Failed to import required Project Tracker modules." -ForegroundColor Red
+    Write-Host "Details: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Path: $modulePath" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+# --- Application Initialization ---
+function Initialize-Application {
+    try {
+        # Initialize data environment first (creates directories and files if needed)
+        if (-not (Initialize-DataEnvironment)) {
+            Write-Host "Failed to initialize data environment." -ForegroundColor Red
+            return $false
+        }
+        
+        # Initialize theme engine
+        if (-not (Initialize-ThemeEngine)) {
+            Write-Host "Failed to initialize theme engine." -ForegroundColor Red
+            return $false
+        }
+        
+        # Override ANSI setting if specified
+        if ($global:FORCE_DISABLE_ANSI -or $disableAnsi) {
+            # This would need to be implemented in the theme engine
+            $theme = Get-CurrentTheme
+            $theme.UseAnsiColors = $false
+            Set-CurrentTheme -ThemeObject $theme
+        }
+        
+        # Log startup
+        Write-AppLog -Message "Application started" -Level INFO
+        $theme = Get-CurrentTheme
+        Write-AppLog -Message "Using theme: $($theme.Name)" -Level INFO
+        
+        return $true
+    } catch {
+        Write-Host "ERROR: Failed to initialize application: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+}
+
+# --- Theme Management Functions ---
+function Show-ThemeList {
+    Render-Header -Title "Available Themes"
+    
+    $themes = Get-AvailableThemes
+    
+    if ($themes.Count -eq 0) {
+        Write-ColorText "No themes available." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+        Read-Host "Press Enter to continue..."
+        return
+    }
+    
+    $themeTable = @()
+    foreach ($theme in $themes) {
+        $themeTable += [PSCustomObject]@{
+            Name = $theme.Name
+            Type = $theme.Type
+            Source = $theme.Source
+            Current = if ($theme.Name -eq (Get-CurrentTheme).Name) { "✓" } else { "" }
+        }
+    }
+    
+    Show-Table -Data $themeTable -Columns @("Name", "Type", "Source", "Current")
+    
+    # Log the action
+    Write-AppLog "Listed available themes" -Level INFO
+    
+    Read-Host "Press Enter to continue..."
+}
+
+function Change-Theme {
+    Render-Header -Title "Change Theme"
+    
+    $themes = Get-AvailableThemes
+    
+    if ($themes.Count -eq 0) {
+        Write-ColorText "No themes available." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+        Read-Host "Press Enter to continue..."
+        return
+    }
+    
+    $menuItems = @()
+    
+    $menuItems += @{
+        Type = "header"
+        Text = "Select Theme"
+    }
+    
+    $currentTheme = (Get-CurrentTheme).Name
+    
+    foreach ($theme in $themes) {
+        $isHighlighted = $theme.Name -eq $currentTheme
+        
+        $menuItems += @{
+            Type = "option"
+            Key = $theme.Name
+            Text = "$($theme.Name) ($(if ($isHighlighted) { 'Current' } else { $theme.Type }))"
+            IsHighlighted = $isHighlighted
+            Function = {
+                param([string]$ThemeName)
+                
+                if (Set-CurrentTheme -ThemeName $ThemeName) {
+                    Write-ColorText "Theme changed to $ThemeName" -ForegroundColor (Get-CurrentTheme).Colors.Success
+                    Write-AppLog "Changed theme to $ThemeName" -Level INFO
+                } else {
+                    Write-ColorText "Failed to change theme to $ThemeName" -ForegroundColor (Get-CurrentTheme).Colors.Error
+                    Write-AppLog "Failed to change theme to $ThemeName" -Level ERROR
+                }
+                
+                Read-Host "Press Enter to continue..."
+            }
+        }
+    }
+    
+    $menuItems += @{
+        Type = "separator"
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "0"
+        Text = "Back"
+        Function = { return $null }
+        IsExit = $true
+    }
+    
+    return Show-DynamicMenu -Title "Select Theme" -MenuItems $menuItems
+}
+
+# --- Main Menu Definition ---
+function Show-MainMenu {
+    # Define menu items
+    $menuItems = @()
+
+    $menuItems += @{
+        Type = "header"
+        Text = "Project Tracker"
+    }
+    
+    # Project Management
+    $menuItems += @{
+        Type = "option"
+        Key = "1"
+        Text = "Project Management"
+        Function = { Show-ProjectMenu }
+    }
+    
+    # Todo Management (only if module is loaded)
+    if (Get-Command "Show-TodoList" -ErrorAction SilentlyContinue) {
+        $menuItems += @{
+            Type = "option"
+            Key = "2"
+            Text = "Todo Management"
+            Function = { Show-TodoMenu }
+        }
+    }
+    
+    # Time Tracking (only if module is loaded)
+    if (Get-Command "Show-TimeEntries" -ErrorAction SilentlyContinue) {
+        $menuItems += @{
+            Type = "option"
+            Key = "3"
+            Text = "Time Tracking"
+            Function = { Show-TimeMenu }
+        }
+    }
+    
+    # Calendar View (only if module is loaded)
+    if (Get-Command "Show-Calendar" -ErrorAction SilentlyContinue) {
+        $menuItems += @{
+            Type = "option"
+            Key = "4"
+            Text = "Calendar View"
+            Function = { Show-Calendar }
+        }
+    }
+    
+    # Theme Options
+    $menuItems += @{
+        Type = "option"
+        Key = "T"
+        Text = "Themes"
+        Function = { Show-ThemeMenu }
+    }
+    
+    $menuItems += @{
+        Type = "separator"
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "0"
+        Text = "Exit"
+        Function = {
+            $confirmExit = Read-UserInput -Prompt "Are you sure you want to exit? (Y/N)"
+            if ($confirmExit -match '^[yY]') {
+                Write-ColorText "`nThank you for using Project Tracker. Goodbye!" -ForegroundColor (Get-CurrentTheme).Colors.Success
+                return $true  # Signal true exit
+            }
+            return $null  # Don't exit, re-draw menu
+        }
+        IsExit = $true
+    }
+    
+    return Show-DynamicMenu -Title "Project Tracker" -Subtitle "Main Menu" -MenuItems $menuItems
+}
+
+# --- Project Menu ---
+function Show-ProjectMenu {
+    $menuItems = @()
+    
+    $menuItems += @{
+        Key = "header_1"
+        Text = "Project Management"
+        Type = "header"
+    }
+    
+    $menuItems += @{
+        Key = "1"
+        Text = "Create New Project"
+        Function = {
+            New-TrackerProject
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "2"
+        Text = "View Active Projects"
+        Function = {
+            Show-ProjectList
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "3"
+        Text = "View All Projects"
+        Function = {
+            Show-ProjectList -IncludeAll
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "4"
+        Text = "Update Project"
+        Function = {
+            Render-Header -Title "Update Project"
+            
+            # Get project to update
+            $projects = @(Get-EntityData -FilePath (Get-AppConfig).ProjectsFullPath)
+            $activeProjects = $projects | Where-Object { 
+                $_.Status -ne "Closed" -and [string]::IsNullOrWhiteSpace($_.ClosedDate) 
+            }
+            
+            if ($activeProjects.Count -eq 0) {
+                Write-ColorText "No active projects found." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Create menu for project selection
+            $projectMenu = @()
+            $projectMenu += @{
+                Type = "header"
+                Text = "Select Project to Update"
+            }
+            
+            $counter = 1
+            foreach ($proj in $activeProjects) {
+                $projectMenu += @{
+                    Type = "option"
+                    Key = "$counter"
+                    Text = "$($proj.Nickname) - $($proj.FullProjectName)"
+                    Function = {
+                        param($Project)
+                        Update-TrackerProject -Nickname $Project.Nickname
+                        return $null
+                    }
+                }
+                $counter++
+            }
+            
+            $projectMenu += @{
+                Type = "separator"
+            }
+            
+            $projectMenu += @{
+                Type = "option"
+                Key = "0"
+                Text = "Back"
+                Function = { return $null }
+                IsExit = $true
+            }
+            
+            Show-DynamicMenu -Title "Select Project" -MenuItems $projectMenu
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "5"
+        Text = "Close Project"
+        Function = {
+            Render-Header -Title "Close Project"
+            
+            # Get project to close
+            $projects = @(Get-EntityData -FilePath (Get-AppConfig).ProjectsFullPath)
+            $activeProjects = $projects | Where-Object { 
+                $_.Status -ne "Closed" -and [string]::IsNullOrWhiteSpace($_.ClosedDate) 
+            }
+            
+            if ($activeProjects.Count -eq 0) {
+                Write-ColorText "No active projects found." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Create menu for project selection
+            $projectMenu = @()
+            $projectMenu += @{
+                Type = "header"
+                Text = "Select Project to Close"
+            }
+            
+            $counter = 1
+            foreach ($proj in $activeProjects) {
+                $projectMenu += @{
+                    Type = "option"
+                    Key = "$counter"
+                    Text = "$($proj.Nickname) - $($proj.FullProjectName)"
+                    Function = {
+                        param($Project)
+                        Set-TrackerProjectStatus -Nickname $Project.Nickname -Status "Closed"
+                        return $null
+                    }
+                }
+                $counter++
+            }
+            
+            $projectMenu += @{
+                Type = "separator"
+            }
+            
+            $projectMenu += @{
+                Type = "option"
+                Key = "0"
+                Text = "Back"
+                Function = { return $null }
+                IsExit = $true
+            }
+            
+            Show-DynamicMenu -Title "Select Project" -MenuItems $projectMenu
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "6"
+        Text = "Delete Project"
+        Function = {
+            Render-Header -Title "Delete Project"
+            
+            # Get all projects for deletion
+            $projects = @(Get-EntityData -FilePath (Get-AppConfig).ProjectsFullPath)
+            
+            if ($projects.Count -eq 0) {
+                Write-ColorText "No projects found." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Create menu for project selection
+            $projectMenu = @()
+            $projectMenu += @{
+                Type = "header"
+                Text = "Select Project to Delete"
+            }
+            
+            $counter = 1
+            foreach ($proj in $projects) {
+                $status = if ([string]::IsNullOrWhiteSpace($proj.Status)) { 
+                    if ([string]::IsNullOrWhiteSpace($proj.ClosedDate)) { "Active" } else { "Closed" }
+                } else { 
+                    $proj.Status 
+                }
+                
+                $projectMenu += @{
+                    Type = "option"
+                    Key = "$counter"
+                    Text = "$($proj.Nickname) - $($proj.FullProjectName) ($status)"
+                    Function = {
+                        param($Project)
+                        Remove-TrackerProject -Nickname $Project.Nickname
+                        return $null
+                    }
+                }
+                $counter++
+            }
+            
+            $projectMenu += @{
+                Type = "separator"
+            }
+            
+            $projectMenu += @{
+                Type = "option"
+                Key = "0"
+                Text = "Back"
+                Function = { return $null }
+                IsExit = $true
+            }
+            
+            Show-DynamicMenu -Title "Select Project" -MenuItems $projectMenu
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "sep_1"
+        Type = "separator"
+    }
+    
+    $menuItems += @{
+        Key = "0"
+        Text = "Back to Main Menu"
+        Function = { return $true }
+        IsExit = $true
+        Type = "option"
+    }
+    
+    Show-DynamicMenu -Title "Project Management" -MenuItems $menuItems
+}
+
+# --- Theme Menu ---
+function Show-ThemeMenu {
+    $menuItems = @()
+    
+    $menuItems += @{
+        Key = "header_1"
+        Text = "Theme Management"
+        Type = "header"
+    }
+    
+    $menuItems += @{
+        Key = "1"
+        Text = "View Available Themes"
+        Function = {
+            Show-ThemeList
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "2"
+        Text = "Change Theme"
+        Function = {
+            Change-Theme
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "sep_1"
+        Type = "separator"
+    }
+    
+    $menuItems += @{
+        Key = "0"
+        Text = "Back to Main Menu"
+        Function = { return $true }
+        IsExit = $true
+        Type = "option"
+    }
+    
+    Show-DynamicMenu -Title "Theme Management" -MenuItems $menuItems
+}
+
+# --- Todo Menu (if module is loaded) ---
+function Show-TodoMenu {
+    if (-not (Get-Command "Show-TodoList" -ErrorAction SilentlyContinue)) {
+        Write-ColorText "Todo module is not loaded." -ForegroundColor (Get-CurrentTheme).Colors.Error
+        Read-Host "Press Enter to continue..."
+        return
+    }
+    
+    $menuItems = @()
+    
+    $menuItems += @{
+        Key = "header_1"
+        Text = "Todo Management"
+        Type = "header"
+    }
+    
+    $menuItems += @{
+        Key = "1"
+        Text = "Create New Todo"
+        Function = {
+            if (Get-Command "New-TrackerTodoItem" -ErrorAction SilentlyContinue) {
+                New-TrackerTodoItem
+            } else {
+                Write-ColorText "Todo creation function not available." -ForegroundColor (Get-CurrentTheme).Colors.Error
+                Read-Host "Press Enter to continue..."
+            }
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "2"
+        Text = "View Pending Todos"
+        Function = {
+            Show-TodoList
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $menuItems += @{
+        Key = "3"
+        Text = "View All Todos"
+        Function = {
+            Show-TodoList -IncludeCompleted
+            return $null
+        }
+        Type = "option"
+    }
+    
+    # Add more todo options as needed
+    
+    $menuItems += @{
+        Key = "sep_1"
+        Type = "separator"
+    }
+    
+    $menuItems += @{
+        Key = "0"
+        Text = "Back to Main Menu"
+        Function = { return $true }
+        IsExit = $true
+        Type = "option"
+    }
+    
+    Show-DynamicMenu -Title "Todo Management" -MenuItems $menuItems
+}
+
+# --- Application Startup Logic ---
+function Start-Application {
+    if (-not (Initialize-Application)) {
+        Write-Host "CRITICAL: Initialization failed. Exiting." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    
+    # Main menu loop
+    while ($true) {
+        $exitRequested = Show-MainMenu
+        if ($exitRequested -eq $true) {
+            break
+        }
+    }
+    
+    # Log shutdown
+    Write-AppLog "Application shutting down" -Level INFO
+}
+
+# --- Execute Application ---
+Start-Application
