@@ -12,6 +12,32 @@
 .EXAMPLE
     Show-InfoBox -Title "Operation Complete" -Message "All tasks were successfully processed." -Type Success
 #>
+# Private helper function to safely get console width
+function Get-SafeConsoleWidth {
+    try {
+        # Check if running interactively and Host supports RawUI
+        if ($Host.UI.RawUI -ne $null -and $Host.Name -ne 'Windows PowerShell ISE Host' -and $Host.Name -ne 'Visual Studio Code Host') {
+             # Use BufferWidth for potentially wider content than window width
+            $width = $Host.UI.RawUI.BufferSize.Width
+            # Fallback to WindowWidth if BufferWidth is zero or unreasonably small
+            if ($width -le 10) {
+                $width = $Host.UI.RawUI.WindowSize.Width
+            }
+            # Ensure a minimum width
+            return [Math]::Max(20, $width)
+        } else {
+            # Fallback for non-interactive or incompatible hosts (e.g., ISE, some VSCode terminals)
+            # Return a reasonable default width
+            return 80
+        }
+    } catch {
+        # Catch any errors accessing host properties
+        Write-Warning "Could not determine console width. Using default 80. Error: $($_.Exception.Message)"
+        return 80
+    }
+}
+
+
 function Show-InfoBox {
     [CmdletBinding()]
     param(
