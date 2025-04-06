@@ -4,8 +4,9 @@
 # Set error action preference to stop so we fail early if there's an issue
 $ErrorActionPreference = 'Stop'
 
-# Get the script's directory
+# Get the script's directory and project root directory
 $scriptDir = $PSScriptRoot
+$projectRoot = Split-Path -Parent $scriptDir # Go up one level from tests directory
 
 # Bold text function for output formatting
 function Write-BoldText {
@@ -29,7 +30,7 @@ function Test-Command {
 # Test core module
 Write-BoldText "Testing ProjectTracker.Core Module"
 try {
-    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Core\ProjectTracker.Core.psd1" -Force -ErrorAction Stop
+    Import-Module -Name "$projectRoot\Modules\ProjectTracker.Core\ProjectTracker.Core.psd1" -Force -ErrorAction Stop
     Write-Host "✓ Core module imported successfully" -ForegroundColor Green
     
     # Test a few representative functions from the Core module
@@ -59,6 +60,17 @@ try {
 } catch {
     Write-Host "✗ Failed to import Core module: $_" -ForegroundColor Red
 }
+
+# Test Projects module
+Write-BoldText "`nTesting ProjectTracker.Projects Module"
+try {
+    Import-Module -Name "$projectRoot\Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1" -Force -ErrorAction Stop
+    Write-Host "✓ Projects module imported successfully" -ForegroundColor Green
+    
+    # Test functions
+    
+#}
+
 
 # Test Projects module
 Write-BoldText "`nTesting ProjectTracker.Projects Module"

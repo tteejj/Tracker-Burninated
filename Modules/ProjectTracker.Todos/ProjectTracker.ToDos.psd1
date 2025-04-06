@@ -8,9 +8,9 @@
     Description = 'Handles creating, updating, listing, and managing todos for Project Tracker.'
     PowerShellVersion = '5.1'
 
-    # Define modules needed by this module - IMPORTANT
+    # Define modules needed by this module - FIXED FORMAT
     RequiredModules = @(
-        @{ModuleName = 'ProjectTracker.Core'; ModuleVersion = '1.0.0'} # Depends on Core v1.0.0
+        @{ModuleName = 'ProjectTracker.Core'; RequiredVersion = '1.0.0'}
     )
 
     # Functions to export from this module

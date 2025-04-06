@@ -8,9 +8,9 @@
     Description = 'Project management functionality for Project Tracker'
     PowerShellVersion = '5.1'
 
-    # Define modules needed by this module
+    # Define modules needed by this module - FIXED FORMAT
     RequiredModules = @(
-        @{ModuleName = 'ProjectTracker.Core'}
+        @{ModuleName = 'ProjectTracker.Core'; RequiredVersion = '1.0.0'}
     )
 
     # Functions to export from this module
