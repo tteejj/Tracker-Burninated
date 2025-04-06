@@ -4056,9 +4056,9 @@ function Read-UserInput {
         # Display prompt with cancel option
         if (-not [string]::IsNullOrEmpty($Prompt)) {
             if ($DefaultValue) {
-                Write-Host "$Prompt [Default: $DefaultValue] (0 to cancel): " -ForegroundColor $script:colors.Accent2 -NoNewline
+                Write-Host "$Prompt [Default: $DefaultValue] (0 to cancel) " -ForegroundColor $script:colors.Accent2 -NoNewline
             } else {
-                Write-Host "$Prompt (0 to cancel): " -ForegroundColor $script:colors.Accent2 -NoNewline
+                Write-Host "$Prompt (0 to cancel) " -ForegroundColor $script:colors.Accent2 -NoNewline
             }
         }
         
@@ -4402,11 +4402,11 @@ function Get-DateInput {
         # Display prompt with consistent format
         if ([string]::IsNullOrEmpty($DefaultValue)) {
             $cancelText = if ($AllowCancel) { " (0 to cancel)" } else { "" }
-            Write-Host "$PromptText$cancelText: " -ForegroundColor $script:colors.Accent2 -NoNewline
+            Write-Host "$PromptText$cancelText " -ForegroundColor $script:colors.Accent2 -NoNewline
         } else {
             $defaultDisplay = Convert-InternalDateToDisplay -InternalDate $DefaultValue
             $cancelText = if ($AllowCancel) { " (0 to cancel)" } else { "" }
-            Write-Host "$PromptText [Default: $defaultDisplay]$cancelText: " -ForegroundColor $script:colors.Accent2 -NoNewline
+            Write-Host "$PromptText [Default: $defaultDisplay]$cancelText " -ForegroundColor $script:colors.Accent2 -NoNewline
         }
         
         $input = Read-Host
@@ -4486,7 +4486,7 @@ function Show-Confirmation {
     $defaultOption = if ($DefaultYes) { "(1/0, default: 1)" } else { "(1/0, default: 0)" }
     
     # Ask for confirmation
-    Write-Host "Confirm $defaultOption: " -ForegroundColor Cyan -NoNewline
+    Write-Host "Confirm $defaultOption " -ForegroundColor Cyan -NoNewline
     $response = Read-Host
     
     # Handle empty response

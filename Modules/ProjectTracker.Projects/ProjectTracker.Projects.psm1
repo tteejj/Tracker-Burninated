@@ -1395,7 +1395,6 @@ function Remove-TrackerProject {
 }
     # --- END OF MISSING/RECONSTRUCTED CODE ---
 
-} # <------------------------------------- ENSURE THIS CLOSING BRACE IS PRESENT
 
 ##Start of missing content
 # Add this function to the ProjectTracker.Projects.psm1 file
@@ -1461,35 +1460,35 @@ function Show-ProjectMenu {
 }
 
 # Fix for Show-TodoMenu (ProjectTracker.Todos.psm1)
-function Show-TodoMenu {
-    $todoMenuItems = @()
+#function Show-TodoMenu {
+#    $todoMenuItems = @()
     
-    $todoMenuItems += @{
-        Key = "header_1"
-        Text = "Todo Management"
-        Type = "header"
-    }
+#    $todoMenuItems += @{
+#        Key = "header_1"
+#        Text = "Todo Management"
+#        Type = "header"
+#    }
     
     # Menu items 1-7...
     
-    $todoMenuItems += @{
-        Key = "sep_1"
-        Type = "separator"
-    }
+#    $todoMenuItems += @{
+#        Key = "sep_1"
+#        Type = "separator"
+#    }
     
-    $todoMenuItems += @{
-        Key = "0"
-        Text = "Back to Main Menu"
-        Function = { 
-            return $true # This exits the submenu, not the application
-        }
-        IsExit = $true
-        Type = "option"
-    }
+#    $todoMenuItems += @{
+#        Key = "0"
+#        Text = "Back to Main Menu"
+#        Function = { 
+#            return $true # This exits the submenu, not the application
+#        }
+#        IsExit = $true
+#        Type = "option"
+#    }
     
     # Show menu but always return null
-    $menuResult = Show-DynamicMenu -Title "Todo Management" -MenuItems $todoMenuItems
-    return $null
+#    $menuResult = Show-DynamicMenu -Title "Todo Management" -MenuItems $todoMenuItems
+#    return $null
 
 # Add to ProjectTracker.Projects.psm1
 
