@@ -2238,6 +2238,9 @@ function Render-Header {
 .OUTPUTS
     System.Int32 - The number of rows displayed
 #>
+# Fix for the Show-Table function in ProjectTracker.Core.psm1
+# Replace the existing Show-Table function with this updated version
+
 function Show-Table {
     [CmdletBinding()]
     param (
@@ -2262,28 +2265,132 @@ function Show-Table {
     
     # Ensure we have a theme
     if ($null -eq $script:currentTheme) {
-        $script:currentTheme = $script:defaultTheme
-        $script:colors = $script:defaultTheme.Colors
+        # Create a minimal default theme if none exists
+        $script:currentTheme = @{
+            Name = "EmergencyDefault"
+            Colors = @{
+                Normal = "White"
+                Header = "Cyan"
+                Accent1 = "Yellow"
+                TableBorder = "Gray"
+                Error = "Red"
+                Warning = "Yellow"
+                Success = "Green"
+                Completed = "DarkGray"
+            }
+            Table = @{
+                Chars = @{
+                    Horizontal = "-"
+                    Vertical = "|"
+                    TopLeft = "+"
+                    TopRight = "+"
+                    BottomLeft = "+"
+                    BottomRight = "+"
+                    LeftJunction = "+"
+                    RightJunction = "+"
+                    TopJunction = "+"
+                    BottomJunction = "+"
+                    CrossJunction = "+"
+                }
+                RowSeparator = $false
+                CellPadding = 1
+                HeaderStyle = "Normal"
+            }
+        }
+        $script:colors = $script:currentTheme.Colors
     }
     
-    # Get border characters from theme
-    $chars = $script:borderPresets.ASCII.Clone() # Default fallback
-    
-    # Try to get theme-specific border characters
-    if ($script:currentTheme.Table.ContainsKey("Chars")) {
-        $chars = $script:currentTheme.Table.Chars
+    # Make sure colors are set
+    if ($null -eq $script:colors -or $script:colors.Count -eq 0) {
+        $script:colors = @{
+            Normal = "White"
+            Header = "Cyan"
+            Accent1 = "Yellow"
+            TableBorder = "Gray"
+            Error = "Red"
+            Warning = "Yellow"
+            Success = "Green"
+            Completed = "DarkGray"
+        }
     }
     
-    # Determine if row separators should be used
+    # Get border characters from theme with fallbacks
+    $chars = @{
+        Horizontal = "-"
+        Vertical = "|"
+        TopLeft = "+"
+        TopRight = "+"
+        BottomLeft = "+"
+        BottomRight = "+"
+        LeftJunction = "+"
+        RightJunction = "+"
+        TopJunction = "+"
+        BottomJunction = "+"
+        CrossJunction = "+"
+    }
+    
+    # Try to get theme-specific border characters safely
+    if ($null -ne $script:currentTheme -and 
+        $null -ne $script:currentTheme.Table -and 
+        $script:currentTheme.Table.ContainsKey("Chars") -and
+        $null -ne $script:currentTheme.Table.Chars) {
+        
+        # Copy over only valid characters
+        $themeChars = $script:currentTheme.Table.Chars
+        foreach ($key in $chars.Keys) {
+            if ($themeChars.ContainsKey($key) -and $null -ne $themeChars[$key]) {
+                $chars[$key] = $themeChars[$key]
+            }
+        }
+    }
+    
+    # Determine if row separators should be used (with fallback)
     $useRowSeparator = $false
-    if ($script:currentTheme.Table.ContainsKey("RowSeparator")) {
+    if ($null -ne $script:currentTheme -and 
+        $null -ne $script:currentTheme.Table -and 
+        $script:currentTheme.Table.ContainsKey("RowSeparator")) {
         $useRowSeparator = $script:currentTheme.Table.RowSeparator
     }
     
     # Calculate column widths
     $widths = @{}
-    $fixedWidths = if ($script:config.TableOptions.ContainsKey("FixedWidths")) { $script:config.TableOptions.FixedWidths } else { @{} }
-    $alignments = if ($script:config.TableOptions.ContainsKey("Alignments")) { $script:config.TableOptions.Alignments } else { @{} }
+    
+    # Safe access to config
+    $fixedWidths = @{}
+    $alignments = @{}
+    
+    try {
+        $config = Get-AppConfig
+        if ($null -ne $config -and 
+            $config.ContainsKey("TableOptions") -and 
+            $null -ne $config.TableOptions) {
+            
+            if ($config.TableOptions.ContainsKey("FixedWidths") -and 
+                $null -ne $config.TableOptions.FixedWidths) {
+                $fixedWidths = $config.TableOptions.FixedWidths
+            }
+            
+            if ($config.TableOptions.ContainsKey("Alignments") -and 
+                $null -ne $config.TableOptions.Alignments) {
+                $alignments = $config.TableOptions.Alignments
+            }
+        }
+    } catch {
+        # Silently continue if config can't be accessed
+        Write-Verbose "Could not access table config options: $($_.Exception.Message)"
+    }
+    
+    # Safe function to get visible string length
+    function Safe-GetVisibleLength {
+        param([string]$text)
+        
+        try {
+            return Get-VisibleStringLength -Text $text
+        } catch {
+            # Fallback to basic string length
+            return $text.Length
+        }
+    }
     
     foreach ($col in $Columns) {
         # Check for fixed width first
@@ -2297,22 +2404,32 @@ function Show-Table {
         $maxContentLen = $headerText.Length
         
         # Check data for max content length
-        foreach ($item in $Data) {
-            $value = if ($item.PSObject.Properties[$col]) { $item.PSObject.Properties[$col].Value } else { "" }
-            $formatted = if ($Formatters.ContainsKey($col)) {
-                try {
-                    $result = & $Formatters[$col] $value $item
-                    if ($result) { $result.ToString() } else { "" }
-                } catch {
-                    "[ERR]"
+        if ($null -ne $Data -and $Data.Count -gt 0) {
+            foreach ($item in $Data) {
+                if ($null -eq $item) { continue }
+                
+                $value = if ($item.PSObject.Properties[$col]) { 
+                    $item.PSObject.Properties[$col].Value 
+                } else { 
+                    "" 
                 }
-            } else {
-                if ($null -ne $value) { $value.ToString() } else { "" }
-            }
-            
-            $len = Get-VisibleStringLength -Text $formatted
-            if ($len -gt $maxContentLen) {
-                $maxContentLen = $len
+                
+                $formatted = ""
+                if ($Formatters.ContainsKey($col)) {
+                    try {
+                        $result = & $Formatters[$col] $value $item
+                        $formatted = if ($null -ne $result) { $result.ToString() } else { "" }
+                    } catch {
+                        $formatted = "[ERR]"
+                    }
+                } else {
+                    $formatted = if ($null -ne $value) { $value.ToString() } else { "" }
+                }
+                
+                $len = Safe-GetVisibleLength -text $formatted
+                if ($len -gt $maxContentLen) {
+                    $maxContentLen = $len
+                }
             }
         }
         
@@ -2360,6 +2477,9 @@ function Show-Table {
         $width = $widths[$col]
         $alignment = if ($alignments.ContainsKey($col)) { $alignments[$col] } else { "Left" }
         
+        # Ensure headerText isn't null
+        if ($null -eq $headerText) { $headerText = "" }
+        
         # Truncate if needed
         if ($headerText.Length -gt $width - 2) {
             $headerText = $headerText.Substring(0, $width - 5) + "..."
@@ -2367,6 +2487,8 @@ function Show-Table {
         
         # Pad based on alignment
         $padding = $width - 2 - $headerText.Length
+        if ($padding -lt 0) { $padding = 0 }
+        
         $leftPad = 0
         $rightPad = 0
         
@@ -2388,7 +2510,7 @@ function Show-Table {
     Write-ColorText $midBorder -ForegroundColor $script:colors.TableBorder
     
     # Handle empty data case
-    if ($Data.Count -eq 0) {
+    if ($null -eq $Data -or $Data.Count -eq 0) {
         $emptyMessage = "No data available"
         $totalWidth = ($Columns | ForEach-Object { $widths[$_] } | Measure-Object -Sum).Sum + $Columns.Count + 1
         
@@ -2412,7 +2534,10 @@ function Show-Table {
     foreach ($item in $Data) {
         $rowIndex++
         
-        # Get row color
+        # Skip null items
+        if ($null -eq $item) { continue }
+        
+        # Get row color with fallback
         $rowColor = $script:colors.Normal # Default color
         if ($null -ne $RowColorizer) {
             try {
@@ -2422,6 +2547,7 @@ function Show-Table {
                 }
             } catch {
                 # Ignore errors in colorizer
+                Write-Verbose "Row colorizer error: $($_.Exception.Message)"
             }
         }
         
@@ -2430,31 +2556,58 @@ function Show-Table {
         
         # Draw each cell
         foreach ($col in $Columns) {
-            $cellValue = if ($item.PSObject.Properties[$col]) { $item.PSObject.Properties[$col].Value } else { "" }
+            $cellValue = if ($item.PSObject.Properties[$col]) { 
+                $item.PSObject.Properties[$col].Value 
+            } else { 
+                "" 
+            }
             
             # Format cell value
-            $formatted = if ($Formatters.ContainsKey($col)) {
+            $formatted = ""
+            if ($Formatters.ContainsKey($col)) {
                 try {
                     $result = & $Formatters[$col] $cellValue $item
-                    if ($result) { $result.ToString() } else { "" }
+                    $formatted = if ($null -ne $result) { $result.ToString() } else { "" }
                 } catch {
-                    "[ERR]"
+                    $formatted = "[ERR]"
                 }
             } else {
-                if ($null -ne $cellValue) { $cellValue.ToString() } else { "" }
+                $formatted = if ($null -ne $cellValue) { $cellValue.ToString() } else { "" }
             }
             
             $width = $widths[$col]
             $alignment = if ($alignments.ContainsKey($col)) { $alignments[$col] } else { "Left" }
             
-            # Truncate if needed
-            $visibleLength = Get-VisibleStringLength -Text $formatted
+            # Truncate if needed - with safe handling
+            $visibleLength = 0
+            try {
+                $visibleLength = Get-VisibleStringLength -Text $formatted
+            } catch {
+                $visibleLength = $formatted.Length
+            }
+            
             if ($visibleLength -gt $width - 2) {
-                $formatted = Safe-TruncateString -Text $formatted -MaxLength ($width - 2) -PreserveAnsi
+                try {
+                    $formatted = Safe-TruncateString -Text $formatted -MaxLength ($width - 2) -PreserveAnsi
+                } catch {
+                    # Fallback to basic truncation
+                    if ($formatted.Length -gt $width - 2) {
+                        $formatted = $formatted.Substring(0, $width - 5) + "..."
+                    }
+                }
+                
+                # Recalculate length after truncation
+                try {
+                    $visibleLength = Get-VisibleStringLength -Text $formatted
+                } catch {
+                    $visibleLength = $formatted.Length
+                }
             }
             
             # Pad based on alignment
             $padding = $width - 2 - $visibleLength
+            if ($padding -lt 0) { $padding = 0 }
+            
             $leftPad = 0
             $rightPad = 0
             
@@ -2484,6 +2637,7 @@ function Show-Table {
     
     return $rowIndex
 }
+    
 
 <#
 .SYNOPSIS
