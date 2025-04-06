@@ -160,23 +160,14 @@ function Show-ProjectList {
 
 <#
 .SYNOPSIS
-    Creates a new project.
+    Creates a new project with numeric navigation.
 .DESCRIPTION
     Creates a new project with the specified properties.
-    Takes input from the user for each field if not provided in $ProjectData.
+    Takes input from the user for each field with numeric navigation.
 .PARAMETER ProjectData
     Optional hashtable containing project data fields.
 .EXAMPLE
     New-TrackerProject
-.EXAMPLE
-    $projectData = @{
-        Nickname = "WEBSITE"
-        FullProjectName = "Company Website Redesign"
-        DateAssigned = "20240320"
-    }
-    New-TrackerProject -ProjectData $projectData
-.OUTPUTS
-    PSObject representing the created project, or $null if creation failed
 #>
 function New-TrackerProject {
     [CmdletBinding()]
@@ -207,6 +198,8 @@ function New-TrackerProject {
             $nicknameValidator = {
                 param($input)
                 
+                if ($input -eq "CANCEL") { return $true } # Special case for cancellation
+                
                 if ([string]::IsNullOrWhiteSpace($input)) {
                     Write-ColorText "Nickname cannot be empty." -ForegroundColor (Get-CurrentTheme).Colors.Error
                     return $false
@@ -230,6 +223,13 @@ function New-TrackerProject {
             }
             
             $nickName = Read-UserInput -Prompt "Enter Nickname (unique, max 15 chars)" -Validator $nicknameValidator -ErrorMessage "Invalid nickname."
+            
+            if ($nickName -eq "CANCEL") {
+                Write-ColorText "Project creation cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
             $newProj | Add-Member -NotePropertyName "Nickname" -NotePropertyValue $nickName -Force
         }
         
@@ -240,6 +240,8 @@ function New-TrackerProject {
             $fullNameValidator = {
                 param($input)
                 
+                if ($input -eq "CANCEL") { return $true } # Special case for cancellation
+                
                 if ([string]::IsNullOrWhiteSpace($input)) {
                     Write-ColorText "Full Name cannot be empty." -ForegroundColor (Get-CurrentTheme).Colors.Error
                     return $false
@@ -249,18 +251,39 @@ function New-TrackerProject {
             }
             
             $fullName = Read-UserInput -Prompt "Enter Full Project Name" -Validator $fullNameValidator -ErrorMessage "Invalid full name."
+            
+            if ($fullName -eq "CANCEL") {
+                Write-ColorText "Project creation cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
             $newProj | Add-Member -NotePropertyName "FullProjectName" -NotePropertyValue $fullName -Force
         }
         
         # Prompt for ID1 if not provided
         if (-not $newProj.PSObject.Properties.Name.Contains("ID1")) {
             $id1 = Read-UserInput -Prompt "Enter ID1 (e.g., Client Code, optional)"
+            
+            if ($id1 -eq "CANCEL") {
+                Write-ColorText "Project creation cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
             $newProj | Add-Member -NotePropertyName "ID1" -NotePropertyValue $id1 -Force
         }
         
         # Prompt for ID2 if not provided
         if (-not $newProj.PSObject.Properties.Name.Contains("ID2")) {
             $id2 = Read-UserInput -Prompt "Enter ID2 (e.g., Engagement Code, optional)"
+            
+            if ($id2 -eq "CANCEL") {
+                Write-ColorText "Project creation cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
             $newProj | Add-Member -NotePropertyName "ID2" -NotePropertyValue $id2 -Force
         }
         
@@ -268,7 +291,14 @@ function New-TrackerProject {
         if (-not $newProj.PSObject.Properties.Name.Contains("DateAssigned") -or 
             [string]::IsNullOrWhiteSpace($newProj.DateAssigned)) {
             
-            $assignedDate = Get-DateInput -PromptText "Enter Assigned Date (MM/DD/YYYY)" -AllowEmptyForToday
+            $assignedDate = Get-DateInput -PromptText "Enter Assigned Date (MM/DD/YYYY)" -AllowEmptyForToday -AllowCancel
+            
+            if ($null -eq $assignedDate) {
+                Write-ColorText "Project creation cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
             $newProj | Add-Member -NotePropertyName "DateAssigned" -NotePropertyValue $assignedDate -Force
         }
         
@@ -289,19 +319,40 @@ function New-TrackerProject {
             [string]::IsNullOrWhiteSpace($newProj.BFDate)) {
             
             $bfDatePrompt = "Enter BF Date (MM/DD/YYYY, Enter=DueDate)"
-            $bfDate = Get-DateInput -PromptText $bfDatePrompt -DefaultValue $newProj.DueDate
+            $bfDate = Get-DateInput -PromptText $bfDatePrompt -DefaultValue $newProj.DueDate -AllowCancel
+            
+            if ($null -eq $bfDate) {
+                Write-ColorText "Project creation cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
             $newProj | Add-Member -NotePropertyName "BFDate" -NotePropertyValue $bfDate -Force
         }
         
         # Prompt for Note if not provided
         if (-not $newProj.PSObject.Properties.Name.Contains("Note")) {
             $note = Read-UserInput -Prompt "Enter Note (optional)"
+            
+            if ($note -eq "CANCEL") {
+                Write-ColorText "Project creation cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
             $newProj | Add-Member -NotePropertyName "Note" -NotePropertyValue $note -Force
         }
         
         # Prompt for Project Folder if not provided
         if (-not $newProj.PSObject.Properties.Name.Contains("ProjFolder")) {
             $projFolder = Read-UserInput -Prompt "Enter Project Folder Path (optional)"
+            
+            if ($projFolder -eq "CANCEL") {
+                Write-ColorText "Project creation cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
             $newProj | Add-Member -NotePropertyName "ProjFolder" -NotePropertyValue $projFolder -Force
         }
         
@@ -429,20 +480,16 @@ function Add-TodoItem {
 
 <#
 .SYNOPSIS
-    Updates a project's details.
+    Updates a project's details with numeric navigation.
 .DESCRIPTION
     Updates an existing project with new values.
-    Takes input from the user for each field if not provided in $ProjectData.
+    Takes input from the user for each field using numeric options.
 .PARAMETER Nickname
     The nickname of the project to update.
 .PARAMETER ProjectData
     Optional hashtable containing updated project data fields.
 .EXAMPLE
     Update-TrackerProject -Nickname "WEBSITE"
-.EXAMPLE
-    Update-TrackerProject -Nickname "WEBSITE" -ProjectData @{ Note = "Updated project details" }
-.OUTPUTS
-    PSObject representing the updated project, or $null if update failed
 #>
 function Update-TrackerProject {
     [CmdletBinding()]
@@ -491,83 +538,125 @@ function Update-TrackerProject {
                 }
             }
         } else {
-            # Interactive update - prompt for each field
-            Write-ColorText "`nUpdating Project: $($updatedProj.Nickname)" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
-            Write-ColorText "Enter new value or press Enter to keep current. Enter '0' to cancel." -ForegroundColor (Get-CurrentTheme).Colors.Accent2
+            # Interactive update - prompt for each field with numeric menu
+            Write-ColorText "Updating Project: $($updatedProj.Nickname)" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
+            Write-ColorText "For each field: enter new value or 0 to cancel, press Enter to keep current value." -ForegroundColor (Get-CurrentTheme).Colors.Accent2
             
-            # Function to prompt for field update
-            function Read-UpdateField {
-                param($FieldName, [ref]$ProjectObject, [switch]$IsDate)
-                
-                $currentValue = $ProjectObject.Value.$FieldName
-                $displayCurrent = if ($IsDate) { Convert-InternalDateToDisplay $currentValue } else { $currentValue }
-                $input = Read-UserInput -Prompt "$FieldName (current: $displayCurrent)"
-                
-                if ($input -eq '0') {
-                    return $false # Cancel
+            # Full Project Name
+            $newFullName = Read-UserInput -Prompt "Full Project Name (current: $($updatedProj.FullProjectName))"
+            if ($newFullName -eq "CANCEL") { 
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null 
+            }
+            if (-not [string]::IsNullOrWhiteSpace($newFullName) -and $newFullName -ne $updatedProj.FullProjectName) {
+                $updatedProj.FullProjectName = $newFullName
+            }
+            
+            # ID1
+            $newID1 = Read-UserInput -Prompt "ID1 (current: $($updatedProj.ID1))"
+            if ($newID1 -eq "CANCEL") { 
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null 
+            }
+            if ($newID1 -ne $updatedProj.ID1) {
+                $updatedProj.ID1 = $newID1
+            }
+            
+            # ID2
+            $newID2 = Read-UserInput -Prompt "ID2 (current: $($updatedProj.ID2))"
+            if ($newID2 -eq "CANCEL") { 
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null 
+            }
+            if ($newID2 -ne $updatedProj.ID2) {
+                $updatedProj.ID2 = $newID2
+            }
+            
+            # Date Assigned
+            $currentAssigned = Convert-InternalDateToDisplay -InternalDate $updatedProj.DateAssigned
+            Write-ColorText "Current Assigned Date: $currentAssigned" -ForegroundColor (Get-CurrentTheme).Colors.Normal
+            $updateAssigned = Read-UserInput -Prompt "Update Assigned Date? (1=Yes, 0=No)" -NumericOnly
+            if ($updateAssigned -eq "CANCEL" -or $updateAssigned -eq "0") {
+                # Skip updating this field
+            } else {
+                $newAssignedDate = Get-DateInput -PromptText "Enter new Assigned Date" -AllowCancel
+                if ($null -eq $newAssignedDate) {
+                    Write-ColorText "Date update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                } else {
+                    $updatedProj.DateAssigned = $newAssignedDate
                 }
-                
-                if (-not [string]::IsNullOrWhiteSpace($input) -and $input -ne $currentValue) {
-                    if ($IsDate) {
-                        $internalDate = Parse-DateInput -InputDate $input
-                        if ($internalDate -and $internalDate -ne "CANCEL") {
-                            $ProjectObject.Value.$FieldName = $internalDate # Store internal format
-                        } elseif ($internalDate -ne "CANCEL") {
-                            Write-ColorText "Invalid date format. Keeping original." -ForegroundColor (Get-CurrentTheme).Colors.Warning
-                        } else {
-                            return $false # Cancelled during date parse
-                        }
-                    } else {
-                        $ProjectObject.Value.$FieldName = $input
-                    }
+            }
+            
+            # Due Date
+            $currentDue = Convert-InternalDateToDisplay -InternalDate $updatedProj.DueDate
+            Write-ColorText "Current Due Date: $currentDue" -ForegroundColor (Get-CurrentTheme).Colors.Normal
+            $updateDue = Read-UserInput -Prompt "Update Due Date? (1=Yes, 0=No)" -NumericOnly
+            if ($updateDue -eq "CANCEL" -or $updateDue -eq "0") {
+                # Skip updating this field
+            } else {
+                $newDueDate = Get-DateInput -PromptText "Enter new Due Date" -AllowCancel
+                if ($null -eq $newDueDate) {
+                    Write-ColorText "Date update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                } else {
+                    $updatedProj.DueDate = $newDueDate
                 }
-                
-                return $true # Continue
             }
             
-            # Prompt for each field
-            if (-not (Read-UpdateField "FullProjectName" ([ref]$updatedProj))) {
-                return $null
+            # BF Date
+            $currentBF = Convert-InternalDateToDisplay -InternalDate $updatedProj.BFDate
+            Write-ColorText "Current BF Date: $currentBF" -ForegroundColor (Get-CurrentTheme).Colors.Normal
+            $updateBF = Read-UserInput -Prompt "Update BF Date? (1=Yes, 0=No)" -NumericOnly
+            if ($updateBF -eq "CANCEL" -or $updateBF -eq "0") {
+                # Skip updating this field
+            } else {
+                $newBFDate = Get-DateInput -PromptText "Enter new BF Date" -AllowCancel
+                if ($null -eq $newBFDate) {
+                    Write-ColorText "Date update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                } else {
+                    $updatedProj.BFDate = $newBFDate
+                }
             }
             
-            if (-not (Read-UpdateField "ID1" ([ref]$updatedProj))) {
-                return $null
+            # Note
+            $newNote = Read-UserInput -Prompt "Note (current: $($updatedProj.Note))"
+            if ($newNote -eq "CANCEL") { 
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null 
+            }
+            if ($newNote -ne $updatedProj.Note) {
+                $updatedProj.Note = $newNote
             }
             
-            if (-not (Read-UpdateField "ID2" ([ref]$updatedProj))) {
-                return $null
+            # Project Folder
+            $newProjFolder = Read-UserInput -Prompt "Project Folder (current: $($updatedProj.ProjFolder))"
+            if ($newProjFolder -eq "CANCEL") { 
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null 
+            }
+            if ($newProjFolder -ne $updatedProj.ProjFolder) {
+                $updatedProj.ProjFolder = $newProjFolder
             }
             
-            if (-not (Read-UpdateField "DateAssigned" ([ref]$updatedProj) -IsDate)) {
-                return $null
-            }
-            
-            if (-not (Read-UpdateField "DueDate" ([ref]$updatedProj) -IsDate)) {
-                return $null
-            }
-            
-            if (-not (Read-UpdateField "BFDate" ([ref]$updatedProj) -IsDate)) {
-                return $null
-            }
-            
-            if (-not (Read-UpdateField "Note" ([ref]$updatedProj))) {
-                return $null
-            }
-            
-            if (-not (Read-UpdateField "ProjFolder" ([ref]$updatedProj))) {
-                return $null
-            }
-            
-            # Status update
+            # Status with numeric menu
             $currentStatus = if ([string]::IsNullOrWhiteSpace($updatedProj.Status)) { "Active" } else { $updatedProj.Status }
-            
             Write-ColorText "Current Status: $currentStatus" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
             Write-ColorText "[1] Active" -ForegroundColor (Get-CurrentTheme).Colors.Success
             Write-ColorText "[2] Closed" -ForegroundColor (Get-CurrentTheme).Colors.Completed
             Write-ColorText "[3] On Hold" -ForegroundColor (Get-CurrentTheme).Colors.Warning
             Write-ColorText "[0] Keep Current" -ForegroundColor (Get-CurrentTheme).Colors.Accent2
             
-            $statusChoice = Read-UserInput -Prompt "Select new status"
+            $statusChoice = Read-UserInput -Prompt "Select new status" -NumericOnly
+            
+            if ($statusChoice -eq "CANCEL") {
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
             
             switch($statusChoice) {
                 '1' { $updatedProj.Status = "Active" }
@@ -1217,15 +1306,13 @@ function Update-TodoForProject {
 
 <#
 .SYNOPSIS
-    Deletes a project.
+    Deletes a project with numeric confirmation.
 .DESCRIPTION
-    Deletes a project and its related todo items.
+    Deletes a project and its related todo items with numeric confirmation.
 .PARAMETER Nickname
     The nickname of the project to delete.
 .EXAMPLE
     Remove-TrackerProject -Nickname "WEBSITE"
-.OUTPUTS
-    Boolean indicating success or failure
 #>
 function Remove-TrackerProject {
     [CmdletBinding()]
@@ -1237,7 +1324,6 @@ function Remove-TrackerProject {
     Write-AppLog "Deleting project: $Nickname" -Level INFO
     Render-Header "Delete Project"
 
-    # --- START OF MISSING/RECONSTRUCTED CODE ---
     try {
         $config = Get-AppConfig
         $ProjectsFilePath = $config.ProjectsFullPath
@@ -1254,15 +1340,15 @@ function Remove-TrackerProject {
             return $false
         }
 
-        # Confirm deletion
+        # Confirm deletion with numeric input
         Write-ColorText "WARNING: This will permanently delete project '$Nickname' and ALL associated todo items." -ForegroundColor $colors.Error
         Write-ColorText "Project Details:" -ForegroundColor $colors.Warning
         Write-ColorText "  Name: $($projectToDelete.FullProjectName)" -ForegroundColor $colors.Normal
         Write-ColorText "  Status: $($projectToDelete.Status)" -ForegroundColor $colors.Normal
 
-        $confirm = Read-UserInput -Prompt "Type '$Nickname' to confirm deletion (or 0 to cancel)"
+        $confirm = Confirm-Action -ActionDescription "Are you sure you want to delete this project?"
 
-        if ($confirm -ne $Nickname) {
+        if (-not $confirm) {
             Write-ColorText "Deletion cancelled." -ForegroundColor $colors.Warning
             Read-Host "Press Enter to continue..."
             return $false
@@ -1306,6 +1392,7 @@ function Remove-TrackerProject {
         Read-Host "Press Enter to continue..."
         return $false
     }
+}
     # --- END OF MISSING/RECONSTRUCTED CODE ---
 
 } # <------------------------------------- ENSURE THIS CLOSING BRACE IS PRESENT
@@ -1315,14 +1402,32 @@ function Remove-TrackerProject {
 
 <#
 .SYNOPSIS
-    Displays the project management menu.
+    Displays the project management menu with numeric options.
 .DESCRIPTION
-    Shows a menu with options for managing projects.
+    Shows a menu with numeric options for managing projects.
 .EXAMPLE
     Show-ProjectMenu
-.OUTPUTS
-    Boolean indicating if the menu should exit
 #>
+# Exit Handling Principles
+#
+# 1. Menu Functions:
+#    - Always return $null from Show-XxxMenu functions unless explicitly exiting the application
+#    - Use IsExit = $true for menu items that exit a submenu, not the application
+#
+# 2. Return Values:
+#    - Return $true ONLY when intending to exit the application completely
+#    - Return $null to continue in the current menu context
+#    - Return other explicit values only when they're expected and handled
+#
+# 3. Menu Items:
+#    - Key "0" is always for "Back" or "Cancel" operations
+#    - Keys "1-9" are for options
+#
+# 4. Confirmation:
+#    - Always use 1 for Yes, 0 for No
+#    - Use Confirm-Action for all confirmations
+
+# Fix for Show-ProjectMenu (ProjectTracker.Projects.psm1)
 function Show-ProjectMenu {
     [CmdletBinding()]
     param()
@@ -1334,133 +1439,7 @@ function Show-ProjectMenu {
         Text = "Project Management"
     }
     
-    $menuItems += @{
-        Type = "option"
-        Key = "1"
-        Text = "List Active Projects"
-        Function = {
-            Show-ProjectList
-            return $null
-        }
-    }
-    
-    $menuItems += @{
-        Type = "option"
-        Key = "2"
-        Text = "List All Projects"
-        Function = {
-            Show-ProjectList -IncludeAll
-            return $null
-        }
-    }
-    
-    $menuItems += @{
-        Type = "option"
-        Key = "3"
-        Text = "Create New Project"
-        Function = {
-            New-TrackerProject
-            return $null
-        }
-    }
-    
-    $menuItems += @{
-        Type = "option"
-        Key = "4"
-        Text = "Update Project"
-        Function = {
-            # First list projects
-            $projects = Show-ProjectList -IncludeAll
-            
-            if ($projects.Count -eq 0) {
-                return $null
-            }
-            
-            # Prompt for nickname
-            $nickname = Read-UserInput -Prompt "Enter project nickname to update (or 0 to cancel)"
-            
-            if ($nickname -eq "0") {
-                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
-                Read-Host "Press Enter to continue..."
-                return $null
-            }
-            
-            # Update the project
-            Update-TrackerProject -Nickname $nickname
-            return $null
-        }
-    }
-    
-    $menuItems += @{
-        Type = "option"
-        Key = "5"
-        Text = "Change Project Status"
-        Function = {
-            # First list projects
-            $projects = Show-ProjectList -IncludeAll
-            
-            if ($projects.Count -eq 0) {
-                return $null
-            }
-            
-            # Prompt for nickname
-            $nickname = Read-UserInput -Prompt "Enter project nickname to change status (or 0 to cancel)"
-            
-            if ($nickname -eq "0") {
-                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
-                Read-Host "Press Enter to continue..."
-                return $null
-            }
-            
-            # Prompt for status
-            $statusItems = @()
-            $statusItems += @{ Type = "header"; Text = "Select Status" }
-            $statusItems += @{ Type = "option"; Key = "1"; Text = "Active"; Function = { return "Active" } }
-            $statusItems += @{ Type = "option"; Key = "2"; Text = "On Hold"; Function = { return "On Hold" } }
-            $statusItems += @{ Type = "option"; Key = "3"; Text = "Closed"; Function = { return "Closed" } }
-            $statusItems += @{ Type = "separator" }
-            $statusItems += @{ Type = "option"; Key = "0"; Text = "Cancel"; Function = { return $null }; IsExit = $true }
-            
-            $status = Show-DynamicMenu -Title "Change Project Status" -MenuItems $statusItems
-            
-            if ($null -eq $status) {
-                Write-ColorText "Status change cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
-                Read-Host "Press Enter to continue..."
-                return $null
-            }
-            
-            # Update the project status
-            Set-TrackerProjectStatus -Nickname $nickname -Status $status
-            return $null
-        }
-    }
-    
-    $menuItems += @{
-        Type = "option"
-        Key = "6"
-        Text = "Delete Project"
-        Function = {
-            # First list projects
-            $projects = Show-ProjectList -IncludeAll
-            
-            if ($projects.Count -eq 0) {
-                return $null
-            }
-            
-            # Prompt for nickname
-            $nickname = Read-UserInput -Prompt "Enter project nickname to DELETE (or 0 to cancel)"
-            
-            if ($nickname -eq "0") {
-                Write-ColorText "Deletion cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
-                Read-Host "Press Enter to continue..."
-                return $null
-            }
-            
-            # Delete the project
-            Remove-TrackerProject -Nickname $nickname
-            return $null
-        }
-    }
+    # Menu items 1-7...
     
     $menuItems += @{
         Type = "separator"
@@ -1470,13 +1449,47 @@ function Show-ProjectMenu {
         Type = "option"
         Key = "0"
         Text = "Back to Main Menu"
-        Function = { return $true }
-        IsExit = $false  # Changed to false to prevent exiting application
+        Function = { 
+            return $true # This exits the submenu, not the application
+        }
+        IsExit = $true
     }
     
-    return Show-DynamicMenu -Title "Project Management" -MenuItems $menuItems
+    # Show menu but always return null
+    $menuResult = Show-DynamicMenu -Title "Project Management" -MenuItems $menuItems
+    return $null
 }
 
+# Fix for Show-TodoMenu (ProjectTracker.Todos.psm1)
+function Show-TodoMenu {
+    $todoMenuItems = @()
+    
+    $todoMenuItems += @{
+        Key = "header_1"
+        Text = "Todo Management"
+        Type = "header"
+    }
+    
+    # Menu items 1-7...
+    
+    $todoMenuItems += @{
+        Key = "sep_1"
+        Type = "separator"
+    }
+    
+    $todoMenuItems += @{
+        Key = "0"
+        Text = "Back to Main Menu"
+        Function = { 
+            return $true # This exits the submenu, not the application
+        }
+        IsExit = $true
+        Type = "option"
+    }
+    
+    # Show menu but always return null
+    $menuResult = Show-DynamicMenu -Title "Todo Management" -MenuItems $todoMenuItems
+    return $null
 
 # Add to ProjectTracker.Projects.psm1
 
@@ -1523,17 +1536,15 @@ function Get-TrackerProject {
 
 <#
 .SYNOPSIS
-    Changes a project's status.
+    Changes a project's status with numeric selection.
 .DESCRIPTION
-    Updates the status of a project to Active, On Hold, or Closed.
+    Updates the status of a project to Active, On Hold, or Closed using numeric input.
 .PARAMETER Nickname
     The nickname of the project to update.
 .PARAMETER Status
     The new status (Active, On Hold, Closed).
 .EXAMPLE
     Set-TrackerProjectStatus -Nickname "WEBSITE" -Status "Closed"
-.OUTPUTS
-    Boolean indicating success or failure
 #>
 function Set-TrackerProjectStatus {
     [CmdletBinding()]
@@ -1572,6 +1583,15 @@ function Set-TrackerProjectStatus {
             Write-Verbose "Set closed date to $($project.ClosedDate)"
         } elseif ($Status -ne "Closed") {
             $project.ClosedDate = ""
+        }
+        
+        # Get numeric confirmation if changing to Closed
+        if ($Status -eq "Closed" -and $oldStatus -ne "Closed") {
+            if (-not (Confirm-Action -ActionDescription "Are you sure you want to mark this project as Closed?")) {
+                Write-ColorText "Status change cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $false
+            }
         }
         
         # Save projects

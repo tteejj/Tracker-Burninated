@@ -1,0 +1,53 @@
+{
+  "Name": "UnicodeBoxDrawing",
+  "Description": "Theme with Unicode box drawing characters",
+  "Author": "Debug",
+  "Version": "1.0",
+  "UseAnsiColors": true,
+  "Colors": {
+    "Normal": "Cyan",
+    "Header": "Magenta",
+    "Accent1": "Yellow",
+    "Accent2": "Cyan",
+    "Success": "Green",
+    "Warning": "Yellow",
+    "Error": "Red",
+    "Completed": "DarkGray",
+    "DueSoon": "Yellow",
+    "Overdue": "Red",
+    "TableBorder": "Magenta"
+  },
+  "Table": {
+    "Chars": {
+      "Horizontal": "━",
+      "Vertical": "┃",
+      "TopLeft": "┏",
+      "TopRight": "┓",
+      "BottomLeft": "┗",
+      "BottomRight": "┛",
+      "LeftJunction": "┣",
+      "RightJunction": "┫",
+      "TopJunction": "┳",
+      "BottomJunction": "┻",
+      "CrossJunction": "╋"
+    },
+    "RowSeparator": true,
+    "CellPadding": 1,
+    "HeaderStyle": "Bold"
+  },
+  "Headers": {
+    "Style": "Simple",
+    "BorderChar": "━",
+    "Corners": "┏┓┗┛"
+  },
+  "Menu": {
+    "SelectedPrefix": "►",
+    "UnselectedPrefix": " "
+  },
+  "ProgressBar": {
+    "FilledChar": "█",
+    "EmptyChar": "░",
+    "LeftCap": "【",
+    "RightCap": "】"
+  }
+}

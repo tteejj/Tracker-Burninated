@@ -2698,12 +2698,33 @@ if ($null -ne $script:currentTheme -and
 .OUTPUTS
     The return value from the selected menu item's function, or $null if no selection was made
 #>
+#region Menu Functions
+
+<#
+.SYNOPSIS
+    Displays a dynamic menu with numeric options.
+.DESCRIPTION
+    Shows a menu with numeric options, headers, and separators, handling user input
+    and executing the selected option's function. All navigation is done with numbers.
+.PARAMETER Title
+    The menu title.
+.PARAMETER Subtitle
+    An optional subtitle.
+.PARAMETER MenuItems
+    An array of menu item hashtables with Type, Key, Text, and Function properties.
+.PARAMETER Prompt
+    The prompt text for user input.
+.PARAMETER UseNavigationBar
+    If specified, shows a navigation bar above the menu.
+.EXAMPLE
+    Show-DynamicMenu -Title "Main Menu" -MenuItems $menuItems -Prompt "Select option:"
+#>
 function Show-DynamicMenu {
     param(
         [string]$Title,
         [string]$Subtitle = "",
         [array]$MenuItems,
-        [string]$Prompt = "Enter selection:",
+        [string]$Prompt = "Enter option number:",
         [switch]$UseNavigationBar
     )
     
@@ -2734,14 +2755,16 @@ function Show-DynamicMenu {
                         $prefix = $script:currentTheme.Menu.UnselectedPrefix
                     }
                     
-                    $optionText = "$prefix[$($item.Key)] $($item.Text)"
+                    # Ensure all keys are numeric and displayed consistently
+                    $keyDisplay = "[$($item.Key)]"
+                    $optionText = "$prefix$keyDisplay $($item.Text)"
                     $color = $script:colors.Normal
                     
                     if ($item.ContainsKey("IsHighlighted") -and $item.IsHighlighted) {
                         $color = $script:colors.Accent2
                         if ($script:currentTheme.Menu.ContainsKey("SelectedPrefix")) {
                             $prefix = $script:currentTheme.Menu.SelectedPrefix
-                            $optionText = "$prefix[$($item.Key)] $($item.Text)"
+                            $optionText = "$prefix$keyDisplay $($item.Text)"
                         }
                     }
                     
@@ -2762,6 +2785,12 @@ function Show-DynamicMenu {
         Write-Host "`n$Prompt " -ForegroundColor $script:colors.Accent2 -NoNewline
         $choice = Read-Host
         
+        # Validate numeric input
+        if (-not ($choice -match '^\d+$')) {
+            Write-ColorText "Please enter a numeric option only." -ForegroundColor $script:colors.Error
+            continue
+        }
+        
         if ($validOptions.ContainsKey($choice)) {
             $selectedItem = $validOptions[$choice]
             
@@ -2775,16 +2804,18 @@ function Show-DynamicMenu {
                     $result = & $selectedItem.Function
                 }
                 
-                # Only exit if IsExit is explicitly true
+                # Only exit the menu if IsExit is explicitly true
                 if ($selectedItem.ContainsKey("IsExit") -and $selectedItem.IsExit -eq $true) {
-                    return $result
+                    # Only return the result if it's not null, otherwise return $true
+                    # This ensures we have a consistent exit signal
+                    if ($null -ne $result) {
+                        return $result
+                    } else {
+                        return $true # Default exit value
+                    }
                 }
                 
-                if ($null -ne $result) {
-                    return $result
-                }
-                
-                # Redraw menu if we're still here
+                # If we get this far, just redraw the menu
                 Render-Header -Title $Title -Subtitle $Subtitle
                 
                 if ($UseNavigationBar) {
@@ -2808,14 +2839,15 @@ function Show-DynamicMenu {
                                     $prefix = $script:currentTheme.Menu.UnselectedPrefix
                                 }
                                 
-                                $optionText = "$prefix[$($item.Key)] $($item.Text)"
+                                $keyDisplay = "[$($item.Key)]"
+                                $optionText = "$prefix$keyDisplay $($item.Text)"
                                 $color = $script:colors.Normal
                                 
                                 if ($item.ContainsKey("IsHighlighted") -and $item.IsHighlighted) {
                                     $color = $script:colors.Accent2
                                     if ($script:currentTheme.Menu.ContainsKey("SelectedPrefix")) {
                                         $prefix = $script:currentTheme.Menu.SelectedPrefix
-                                        $optionText = "$prefix[$($item.Key)] $($item.Text)"
+                                        $optionText = "$prefix$keyDisplay $($item.Text)"
                                     }
                                 }
                                 
@@ -2830,10 +2862,12 @@ function Show-DynamicMenu {
                 }
             }
         } else {
-            Write-ColorText "Invalid selection. Please try again." -ForegroundColor $script:colors.Error
+            Write-ColorText "Invalid selection. Please enter a valid number." -ForegroundColor $script:colors.Error
         }
     }
 }
+
+#endregion Menu Functions
 
 <#
 .SYNOPSIS
@@ -3964,11 +3998,14 @@ function New-ID {
     }
 }
 
+#region User Input Functions
+
 <#
 .SYNOPSIS
-    Reads user input with validation.
+    Reads user input with validation and numeric navigation.
 .DESCRIPTION
-    Prompts the user for input and validates it against a validator scriptblock.
+    Prompts the user for input with consistent numeric navigation (0 to cancel).
+    Supports validation, default values, and numeric-only mode.
 .PARAMETER Prompt
     The prompt text to display.
 .PARAMETER Validator
@@ -3981,10 +4018,12 @@ function New-ID {
     If specified, the input is masked (e.g., for passwords).
 .PARAMETER AllowEmpty
     If specified, empty input is allowed.
+.PARAMETER NumericOnly
+    If specified, only numeric input is accepted.
 .EXAMPLE
-    $name = Read-UserInput -Prompt "Enter your name" -Validator { param($input) $input.Length -gt 0 } -ErrorMessage "Name cannot be empty"
-.OUTPUTS
-    System.String - The user input
+    $name = Read-UserInput -Prompt "Enter your name"
+.EXAMPLE
+    $selection = Read-UserInput -Prompt "Choose an option" -NumericOnly
 #>
 function Read-UserInput {
     param(
@@ -4004,19 +4043,22 @@ function Read-UserInput {
         [switch]$HideInput,
         
         [Parameter(Mandatory=$false)]
-        [switch]$AllowEmpty
+        [switch]$AllowEmpty,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$NumericOnly
     )
     
     $isValid = $false
     $input = $null
     
     while (-not $isValid) {
-        # Display prompt
+        # Display prompt with cancel option
         if (-not [string]::IsNullOrEmpty($Prompt)) {
             if ($DefaultValue) {
-                Write-Host "$Prompt [Default: $DefaultValue] " -ForegroundColor $script:colors.Accent2 -NoNewline
+                Write-Host "$Prompt [Default: $DefaultValue] (0 to cancel): " -ForegroundColor $script:colors.Accent2 -NoNewline
             } else {
-                Write-Host "$Prompt " -ForegroundColor $script:colors.Accent2 -NoNewline
+                Write-Host "$Prompt (0 to cancel): " -ForegroundColor $script:colors.Accent2 -NoNewline
             }
         }
         
@@ -4030,6 +4072,11 @@ function Read-UserInput {
             $input = Read-Host
         }
         
+        # Check for cancel
+        if ($input -eq "0") {
+            return "CANCEL"
+        }
+        
         # Check for default value
         if ([string]::IsNullOrWhiteSpace($input) -and $null -ne $DefaultValue) {
             $input = $DefaultValue
@@ -4039,6 +4086,14 @@ function Read-UserInput {
         if ([string]::IsNullOrWhiteSpace($input) -and -not $AllowEmpty) {
             Write-ColorText "Input cannot be empty." -ForegroundColor $script:colors.Warning
             continue
+        }
+        
+        # Numeric-only check
+        if ($NumericOnly -and -not [string]::IsNullOrWhiteSpace($input)) {
+            if (-not ($input -match '^\d+$')) {
+                Write-ColorText "Input must be numeric only." -ForegroundColor $script:colors.Warning
+                continue
+            }
         }
         
         try {
@@ -4055,41 +4110,30 @@ function Read-UserInput {
     return $input
 }
 
+
 <#
 .SYNOPSIS
-    Asks for confirmation of an action.
+    Asks for confirmation of an action using numeric input.
 .DESCRIPTION
-    Prompts the user to confirm an action with customizable confirm/reject texts.
+    Prompts the user to confirm an action with standardized numeric input (1=yes, 0=no).
 .PARAMETER ActionDescription
     Description of the action to confirm.
-.PARAMETER ConfirmText
-    The text that confirms the action. Default is "Yes".
-.PARAMETER RejectText
-    The text that rejects the action. Default is "No".
 .EXAMPLE
     if (Confirm-Action -ActionDescription "Are you sure you want to delete this item?") {
         # Delete the item
     }
-.OUTPUTS
-    System.Boolean - True if the action was confirmed, False otherwise
 #>
 function Confirm-Action {
     param(
         [Parameter(Mandatory=$true)]
-        [string]$ActionDescription,
-        
-        [Parameter(Mandatory=$false)]
-        [string]$ConfirmText = "Yes",
-        
-        [Parameter(Mandatory=$false)]
-        [string]$RejectText = "No"
+        [string]$ActionDescription
     )
     
     Write-ColorText $ActionDescription -ForegroundColor $script:colors.Warning
-    Write-Host "Type '$ConfirmText' to confirm, or anything else to cancel: " -ForegroundColor $script:colors.Accent2 -NoNewline
+    Write-Host "Enter 1 for Yes, 0 for No: " -ForegroundColor $script:colors.Accent2 -NoNewline
     $response = Read-Host
     
-    return $response -eq $ConfirmText
+    return $response -eq "1"
 }
 
 <#
@@ -4331,10 +4375,10 @@ function Get-RelativeDateDescription {
 
 <#
 .SYNOPSIS
-    Gets a date input from the user.
+    Gets a date input from the user with numeric navigation.
 .DESCRIPTION
     Prompts the user for a date, validating the input and returning it
-    in the internal format.
+    in the internal format. Uses numeric navigation (0 to cancel).
 .PARAMETER PromptText
     The prompt text to display.
 .PARAMETER DefaultValue
@@ -4345,8 +4389,6 @@ function Get-RelativeDateDescription {
     If specified, allows the user to cancel by entering 0.
 .EXAMPLE
     $dueDate = Get-DateInput -PromptText "Enter due date" -AllowEmptyForToday -AllowCancel
-.OUTPUTS
-    System.String - The date in internal format, or null if cancelled or invalid
 #>
 function Get-DateInput {
     param(
@@ -4357,10 +4399,14 @@ function Get-DateInput {
     )
     
     while ($true) {
+        # Display prompt with consistent format
         if ([string]::IsNullOrEmpty($DefaultValue)) {
-            Write-Host "$PromptText " -ForegroundColor $script:colors.Accent2 -NoNewline
+            $cancelText = if ($AllowCancel) { " (0 to cancel)" } else { "" }
+            Write-Host "$PromptText$cancelText: " -ForegroundColor $script:colors.Accent2 -NoNewline
         } else {
-            Write-Host "$PromptText [Default: $(Convert-InternalDateToDisplay -InternalDate $DefaultValue)] " -ForegroundColor $script:colors.Accent2 -NoNewline
+            $defaultDisplay = Convert-InternalDateToDisplay -InternalDate $DefaultValue
+            $cancelText = if ($AllowCancel) { " (0 to cancel)" } else { "" }
+            Write-Host "$PromptText [Default: $defaultDisplay]$cancelText: " -ForegroundColor $script:colors.Accent2 -NoNewline
         }
         
         $input = Read-Host
@@ -4395,6 +4441,64 @@ function Get-DateInput {
         # If parse failed, the error was already displayed - loop continues
     }
 }
+
+<#
+.SYNOPSIS
+    Shows a confirmation dialog with numeric options.
+.DESCRIPTION
+    Displays a confirmation dialog with standardized numeric options (1=yes, 0=no).
+.PARAMETER Message
+    The message to display.
+.PARAMETER Title
+    The title of the dialog.
+.PARAMETER DefaultYes
+    If specified, defaults to "Yes" when the user presses Enter.
+.EXAMPLE
+    if (Show-Confirmation -Message "Are you sure you want to delete this file?" -Title "Confirm Delete") {
+        # Deletion code here
+    }
+#>
+function Show-Confirmation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Message,
+        
+        [Parameter(Mandatory=$false)]
+        [string]$Title = "Confirm",
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$DefaultYes
+    )
+    
+    # Use info box if available
+    if ($script:currentTheme) {
+        # Display message with the theme engine
+        Show-InfoBox -Title $Title -Message "$Message`n`nEnter 1 for Yes, 0 for No." -Type Warning
+    } else {
+        # Fall back to simple console output
+        Write-Host "`n-- $Title --" -ForegroundColor Yellow
+        Write-Host $Message -ForegroundColor White
+        Write-Host "------------" -ForegroundColor Yellow
+    }
+    
+    # Get default option display
+    $defaultOption = if ($DefaultYes) { "(1/0, default: 1)" } else { "(1/0, default: 0)" }
+    
+    # Ask for confirmation
+    Write-Host "Confirm $defaultOption: " -ForegroundColor Cyan -NoNewline
+    $response = Read-Host
+    
+    # Handle empty response
+    if ([string]::IsNullOrWhiteSpace($response)) {
+        return $DefaultYes
+    }
+    
+    # Return based on response
+    return $response -eq '1'
+}
+
+#endregion User Input Functions
 
 <#
 .SYNOPSIS

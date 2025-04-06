@@ -1,6 +1,278 @@
 # ProjectTracker.Todos.psm1
 # Todo Management module for Project Tracker
 
+<#
+.SYNOPSIS
+    Shows the Todo Management Menu with numeric navigation.
+.DESCRIPTION
+    Displays the todo management menu with all options using numeric keys.
+.EXAMPLE
+    Show-TodoMenu
+#>
+function Show-TodoMenu {
+    $todoMenuItems = @()
+    
+    $todoMenuItems += @{
+        Key = "header_1"
+        Text = "Todo Management"
+        Type = "header"
+    }
+    
+    $todoMenuItems += @{
+        Key = "1"
+        Text = "View Pending Todos"
+        Function = {
+            Show-TodoList
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $todoMenuItems += @{
+        Key = "2"
+        Text = "View All Todos"
+        Function = {
+            Show-TodoList -IncludeCompleted -ShowAll
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $todoMenuItems += @{
+        Key = "3"
+        Text = "Create New Todo"
+        Function = {
+            New-TrackerTodoItem
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $todoMenuItems += @{
+        Key = "4"
+        Text = "Update Todo"
+        Function = {
+            # First, show the todo list
+            $todos = Show-TodoList
+            
+            # If no todos, return
+            if ($todos.Count -eq 0) {
+                return $null
+            }
+            
+            # Display numeric list for selection
+            Write-Host "Select todo to update by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
+            
+            for ($i = 0; $i -lt $todos.Count; $i++) {
+                $todoNum = $i + 1
+                Write-Host "[$todoNum] $($todos[$i].TaskDescription)" -ForegroundColor $script:colors.Normal
+            }
+            
+            $selection = Read-UserInput -Prompt "Enter todo number" -NumericOnly
+            
+            if ($selection -eq "CANCEL" -or $selection -eq "0") {
+                Write-ColorText "Update cancelled." -ForegroundColor $script:colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Convert selection to int and check range
+            try {
+                $index = [int]$selection - 1
+                if ($index -lt 0 -or $index -ge $todos.Count) {
+                    Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                    Read-Host "Press Enter to continue..."
+                    return $null
+                }
+                
+                # Update the selected todo
+                Update-TrackerTodoItem -ID $todos[$index].ID
+            } catch {
+                Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                Read-Host "Press Enter to continue..."
+            }
+            
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $todoMenuItems += @{
+        Key = "5"
+        Text = "Complete Todo"
+        Function = {
+            # First, show the pending todo list
+            $todos = Show-TodoList
+            
+            # If no todos, return
+            if ($todos.Count -eq 0) {
+                return $null
+            }
+            
+            # Display numeric list for selection
+            Write-Host "Select todo to mark as completed by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
+            
+            for ($i = 0; $i -lt $todos.Count; $i++) {
+                $todoNum = $i + 1
+                Write-Host "[$todoNum] $($todos[$i].TaskDescription)" -ForegroundColor $script:colors.Normal
+            }
+            
+            $selection = Read-UserInput -Prompt "Enter todo number" -NumericOnly
+            
+            if ($selection -eq "CANCEL" -or $selection -eq "0") {
+                Write-ColorText "Operation cancelled." -ForegroundColor $script:colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Convert selection to int and check range
+            try {
+                $index = [int]$selection - 1
+                if ($index -lt 0 -or $index -ge $todos.Count) {
+                    Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                    Read-Host "Press Enter to continue..."
+                    return $null
+                }
+                
+                # Complete the selected todo
+                Complete-TrackerTodoItem -ID $todos[$index].ID
+            } catch {
+                Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                Read-Host "Press Enter to continue..."
+            }
+            
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $todoMenuItems += @{
+        Key = "6"
+        Text = "Delete Todo"
+        Function = {
+            # First, show all todos
+            $todos = Show-TodoList -IncludeCompleted -ShowAll
+            
+            # If no todos, return
+            if ($todos.Count -eq 0) {
+                return $null
+            }
+            
+            # Display numeric list for selection
+            Write-Host "Select todo to DELETE by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
+            
+            for ($i = 0; $i -lt $todos.Count; $i++) {
+                $todoNum = $i + 1
+                Write-Host "[$todoNum] $($todos[$i].TaskDescription)" -ForegroundColor $script:colors.Normal
+            }
+            
+            $selection = Read-UserInput -Prompt "Enter todo number" -NumericOnly
+            
+            if ($selection -eq "CANCEL" -or $selection -eq "0") {
+                Write-ColorText "Deletion cancelled." -ForegroundColor $script:colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Convert selection to int and check range
+            try {
+                $index = [int]$selection - 1
+                if ($index -lt 0 -or $index -ge $todos.Count) {
+                    Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                    Read-Host "Press Enter to continue..."
+                    return $null
+                }
+                
+                # Delete the selected todo
+                Remove-TrackerTodoItem -ID $todos[$index].ID
+            } catch {
+                Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                Read-Host "Press Enter to continue..."
+            }
+            
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $todoMenuItems += @{
+        Key = "7"
+        Text = "View Project Todos"
+        Function = {
+            # Get available projects
+            $config = Get-AppConfig
+            $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
+            $colors = (Get-CurrentTheme).Colors
+            
+            if ($projects.Count -eq 0) {
+                Write-ColorText "No projects found." -ForegroundColor $colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Display numbered project list for selection
+            Write-Host "Select project by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
+            
+            for ($i = 0; $i -lt $projects.Count; $i++) {
+                $projectNum = $i + 1
+                Write-Host "[$projectNum] $($projects[$i].Nickname) - $($projects[$i].FullProjectName)" -ForegroundColor $script:colors.Normal
+            }
+            
+            $selection = Read-UserInput -Prompt "Enter project number" -NumericOnly
+            
+            if ($selection -eq "CANCEL" -or $selection -eq "0") {
+                Write-ColorText "Operation cancelled." -ForegroundColor $script:colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Convert selection to int and check range
+            try {
+                $index = [int]$selection - 1
+                if ($index -lt 0 -or $index -ge $projects.Count) {
+                    Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                    Read-Host "Press Enter to continue..."
+                    return $null
+                }
+                
+                $projectNickname = $projects[$index].Nickname
+                
+                # Show todos for the selected project
+                Show-FilteredTodoList -Nickname $projectNickname
+            } catch {
+                Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                Read-Host "Press Enter to continue..."
+            }
+            
+            return $null
+        }
+        Type = "option"
+    }
+    
+    $todoMenuItems += @{
+        Key = "sep_1"
+        Type = "separator"
+    }
+    
+    $todoMenuItems += @{
+        Key = "0"
+        Text = "Back to Main Menu"
+        Function = { 
+            # Return true to exit the todo menu
+            return $true 
+        }
+        IsExit = $true  # This exits the todo menu
+        Type = "option"
+    }
+    
+    # Make sure to always return null from menu result
+    $menuResult = Show-DynamicMenu -Title "Todo Management" -MenuItems $todoMenuItems
+    return $null
+}
+
+
+
+
 # Todo list retrieval
 function Show-TodoList {
     [CmdletBinding()]
@@ -265,6 +537,18 @@ function Show-FilteredTodoList {
 }
 
 # Create new todo item
+<#
+.SYNOPSIS
+    Creates a new todo item with numeric navigation.
+.DESCRIPTION
+    Creates a new todo item with the specified properties using numeric navigation.
+.PARAMETER TodoData
+    Optional hashtable containing todo data fields.
+.PARAMETER IsSilent
+    If specified, no user prompts are displayed.
+.EXAMPLE
+    New-TrackerTodoItem
+#>
 function New-TrackerTodoItem {
     [CmdletBinding()]
     param(
@@ -286,9 +570,18 @@ function New-TrackerTodoItem {
         } else {
             # Get project nickname if applicable
             $projectNickname = ""
-            $useProject = Read-UserInput -Prompt "Associate with a project? (y/n)" -DefaultValue "n"
+            $useProject = Read-UserInput -Prompt "Associate with a project? (1=Yes, 0=No)" -NumericOnly
             
-            if ($useProject -eq "y") {
+            if ($useProject -eq "CANCEL") {
+                if (-not $IsSilent) {
+                    $colors = (Get-CurrentTheme).Colors
+                    Write-ColorText "Todo creation cancelled." -ForegroundColor $colors.Warning
+                    Read-Host "Press Enter to continue..."
+                }
+                return $false
+            }
+            
+            if ($useProject -eq "1") {
                 # Get available projects
                 $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath | Where-Object { $_.Status -ne "Closed" })
                 
@@ -299,37 +592,17 @@ function New-TrackerTodoItem {
                     return $false
                 }
                 
-                # Display project selection menu
-                $projectMenuItems = @()
-                $projectMenuItems += @{ Type = "header"; Text = "Select Project" }
+                # Display numbered project list for selection
+                Write-Host "Select project by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
                 
-                $index = 1
-                foreach ($project in $projects | Sort-Object Nickname) {
-                    $projectMenuItems += @{
-                        Type = "option"
-                        Key = "$index"
-                        Text = "$($project.Nickname) - $($project.FullProjectName)"
-                        Function = { 
-                            param($selectedProject)
-                            return $selectedProject.Nickname 
-                        } 
-                        Args = @($project)
-                    }
-                    $index++
+                for ($i = 0; $i -lt $projects.Count; $i++) {
+                    $projectNum = $i + 1
+                    Write-Host "[$projectNum] $($projects[$i].Nickname) - $($projects[$i].FullProjectName)" -ForegroundColor $script:colors.Normal
                 }
                 
-                $projectMenuItems += @{ Type = "separator" }
-                $projectMenuItems += @{
-                    Type = "option"
-                    Key = "0"
-                    Text = "Cancel"
-                    Function = { return $null }
-                    IsExit = $true
-                }
+                $selection = Read-UserInput -Prompt "Enter project number" -NumericOnly
                 
-                $projectNickname = Show-DynamicMenu -Title "Select Project" -MenuItems $projectMenuItems
-                
-                if ($null -eq $projectNickname) {
+                if ($selection -eq "CANCEL" -or $selection -eq "0") {
                     if (-not $IsSilent) {
                         $colors = (Get-CurrentTheme).Colors
                         Write-ColorText "Todo creation cancelled." -ForegroundColor $colors.Warning
@@ -337,10 +610,35 @@ function New-TrackerTodoItem {
                     }
                     return $false
                 }
+                
+                # Convert selection to int and check range
+                try {
+                    $index = [int]$selection - 1
+                    if ($index -lt 0 -or $index -ge $projects.Count) {
+                        Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                        Read-Host "Press Enter to continue..."
+                        return $false
+                    }
+                    
+                    $projectNickname = $projects[$index].Nickname
+                } catch {
+                    Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                    Read-Host "Press Enter to continue..."
+                    return $false
+                }
             }
             
             # Get task description
             $taskDescription = Read-UserInput -Prompt "Enter task description"
+            
+            if ($taskDescription -eq "CANCEL") {
+                if (-not $IsSilent) {
+                    $colors = (Get-CurrentTheme).Colors
+                    Write-ColorText "Todo creation cancelled." -ForegroundColor $colors.Warning
+                    Read-Host "Press Enter to continue..."
+                }
+                return $false
+            }
             
             if ([string]::IsNullOrWhiteSpace($taskDescription)) {
                 if (-not $IsSilent) {
@@ -351,7 +649,7 @@ function New-TrackerTodoItem {
                 return $false
             }
             
-            # Get importance
+            # Display importance selection menu with numbers
             $importanceMenu = @()
             $importanceMenu += @{ Type = "header"; Text = "Select Importance" }
             $importanceMenu += @{ Type = "option"; Key = "1"; Text = "High"; Function = { return "High" } }
@@ -488,6 +786,20 @@ function Get-TrackerTodoItem {
 }
 
 # Update existing todo item
+<#
+.SYNOPSIS
+    Updates an existing todo item with numeric navigation.
+.DESCRIPTION
+    Updates an existing todo item using numeric input for all selection and navigation.
+.PARAMETER ID
+    The ID of the todo item to update.
+.PARAMETER UpdatedFields
+    Optional hashtable containing updated todo data fields.
+.PARAMETER IsSilent
+    If specified, no user prompts are displayed.
+.EXAMPLE
+    Update-TrackerTodoItem -ID "12345"
+#>
 function Update-TrackerTodoItem {
     [CmdletBinding()]
     param(
@@ -531,25 +843,43 @@ function Update-TrackerTodoItem {
             # Interactive update mode
             if (-not $IsSilent) {
                 Write-ColorText "Updating Todo: $($todoItem.TaskDescription)" -ForegroundColor $colors.Accent2
-                Write-ColorText "Enter new value or press Enter to keep current. Enter '0' to cancel." -ForegroundColor $colors.Accent2
+                Write-ColorText "Enter new value or press Enter to keep current. Enter 0 to cancel." -ForegroundColor $colors.Accent2
             }
             
             # Update task description
-            $newDescription = Read-UserInput -Prompt "Task Description" -DefaultValue $todoItem.TaskDescription
-            if ($newDescription -eq "0") { return $false }
+            $newDescription = Read-UserInput -Prompt "Task Description (current: $($todoItem.TaskDescription))"
+            if ($newDescription -eq "CANCEL") {
+                if (-not $IsSilent) {
+                    Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
+                    Read-Host "Press Enter to continue..."
+                }
+                return $false
+            }
             if (-not [string]::IsNullOrWhiteSpace($newDescription) -and $newDescription -ne $todoItem.TaskDescription) {
                 $todoItem.TaskDescription = $newDescription
             }
             
             # Update project association
-            $updateProject = Read-UserInput -Prompt "Update project association? (y/n)" -DefaultValue "n"
-            if ($updateProject -eq "0") { return $false }
+            $updateProject = Read-UserInput -Prompt "Update project association? (1=Yes, 0=No)" -NumericOnly
+            if ($updateProject -eq "CANCEL") {
+                if (-not $IsSilent) {
+                    Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
+                    Read-Host "Press Enter to continue..."
+                }
+                return $false
+            }
             
-            if ($updateProject -eq "y") {
-                $useProject = Read-UserInput -Prompt "Associate with a project? (y/n)" -DefaultValue $(if ([string]::IsNullOrWhiteSpace($todoItem.Nickname)) { "n" } else { "y" })
-                if ($useProject -eq "0") { return $false }
+            if ($updateProject -eq "1") {
+                $useProject = Read-UserInput -Prompt "Associate with a project? (1=Yes, 0=No)" -NumericOnly
+                if ($useProject -eq "CANCEL") {
+                    if (-not $IsSilent) {
+                        Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
+                        Read-Host "Press Enter to continue..."
+                    }
+                    return $false
+                }
                 
-                if ($useProject -eq "y") {
+                if ($useProject -eq "1") {
                     # Get available projects
                     $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath | Where-Object { $_.Status -ne "Closed" })
                     
@@ -559,40 +889,24 @@ function Update-TrackerTodoItem {
                         return $false
                     }
                     
-                    # Display project selection menu
-                    $projectMenuItems = @()
-                    $projectMenuItems += @{ Type = "header"; Text = "Select Project" }
+                    # Display numbered project list for selection
+                    Write-Host "Select project by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
                     
-                    $index = 1
-                    foreach ($project in $projects | Sort-Object Nickname) {
-                        $isHighlighted = $project.Nickname -eq $todoItem.Nickname
+                    for ($i = 0; $i -lt $projects.Count; $i++) {
+                        $projectNum = $i + 1
+                        $isCurrentProject = $projects[$i].Nickname -eq $todoItem.Nickname
+                        $projectText = "$($projects[$i].Nickname) - $($projects[$i].FullProjectName)"
                         
-                        $projectMenuItems += @{
-                            Type = "option"
-                            Key = "$index"
-                            Text = "$($project.Nickname) - $($project.FullProjectName)"
-                            Function = { 
-                                param($selectedProject)
-                                return $selectedProject.Nickname 
-                            }
-                            Args = @($project)
-                            IsHighlighted = $isHighlighted
+                        if ($isCurrentProject) {
+                            Write-Host "[$projectNum] $projectText (current)" -ForegroundColor $script:colors.Accent2
+                        } else {
+                            Write-Host "[$projectNum] $projectText" -ForegroundColor $script:colors.Normal
                         }
-                        $index++
                     }
                     
-                    $projectMenuItems += @{ Type = "separator" }
-                    $projectMenuItems += @{
-                        Type = "option"
-                        Key = "0"
-                        Text = "Cancel"
-                        Function = { return "CANCEL" }
-                        IsExit = $true
-                    }
+                    $selection = Read-UserInput -Prompt "Enter project number" -NumericOnly
                     
-                    $projectNickname = Show-DynamicMenu -Title "Select Project" -MenuItems $projectMenuItems
-                    
-                    if ($projectNickname -eq "CANCEL") {
+                    if ($selection -eq "CANCEL" -or $selection -eq "0") {
                         if (-not $IsSilent) {
                             Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
                             Read-Host "Press Enter to continue..."
@@ -600,17 +914,37 @@ function Update-TrackerTodoItem {
                         return $false
                     }
                     
-                    $todoItem.Nickname = $projectNickname
+                    # Convert selection to int and check range
+                    try {
+                        $index = [int]$selection - 1
+                        if ($index -lt 0 -or $index -ge $projects.Count) {
+                            Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                            Read-Host "Press Enter to continue..."
+                            return $false
+                        }
+                        
+                        $todoItem.Nickname = $projects[$index].Nickname
+                    } catch {
+                        Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                        Read-Host "Press Enter to continue..."
+                        return $false
+                    }
                 } else {
                     $todoItem.Nickname = ""
                 }
             }
             
             # Update importance
-            $updateImportance = Read-UserInput -Prompt "Update importance? (y/n)" -DefaultValue "n"
-            if ($updateImportance -eq "0") { return $false }
+            $updateImportance = Read-UserInput -Prompt "Update importance? (1=Yes, 0=No)" -NumericOnly
+            if ($updateImportance -eq "CANCEL") {
+                if (-not $IsSilent) {
+                    Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
+                    Read-Host "Press Enter to continue..."
+                }
+                return $false
+            }
             
-            if ($updateImportance -eq "y") {
+            if ($updateImportance -eq "1") {
                 $importanceMenu = @()
                 $importanceMenu += @{ Type = "header"; Text = "Select Importance" }
                 $importanceMenu += @{ Type = "option"; Key = "1"; Text = "High"; Function = { return "High" }; IsHighlighted = $todoItem.Importance -eq "High" }
@@ -633,10 +967,16 @@ function Update-TrackerTodoItem {
             }
             
             # Update due date
-            $updateDueDate = Read-UserInput -Prompt "Update due date? (y/n)" -DefaultValue "n"
-            if ($updateDueDate -eq "0") { return $false }
+            $updateDueDate = Read-UserInput -Prompt "Update due date? (1=Yes, 0=No)" -NumericOnly
+            if ($updateDueDate -eq "CANCEL") {
+                if (-not $IsSilent) {
+                    Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
+                    Read-Host "Press Enter to continue..."
+                }
+                return $false
+            }
             
-            if ($updateDueDate -eq "y") {
+            if ($updateDueDate -eq "1") {
                 $currentDueDate = Convert-InternalDateToDisplay -InternalDate $todoItem.DueDate
                 $dueDate = Get-DateInput -PromptText "Enter due date" -DefaultValue $todoItem.DueDate -AllowCancel
                 
@@ -652,10 +992,16 @@ function Update-TrackerTodoItem {
             }
             
             # Update status
-            $updateStatus = Read-UserInput -Prompt "Update status? (y/n)" -DefaultValue "n"
-            if ($updateStatus -eq "0") { return $false }
+            $updateStatus = Read-UserInput -Prompt "Update status? (1=Yes, 0=No)" -NumericOnly
+            if ($updateStatus -eq "CANCEL") {
+                if (-not $IsSilent) {
+                    Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
+                    Read-Host "Press Enter to continue..."
+                }
+                return $false
+            }
             
-            if ($updateStatus -eq "y") {
+            if ($updateStatus -eq "1") {
                 $statusMenu = @()
                 $statusMenu += @{ Type = "header"; Text = "Select Status" }
                 $statusMenu += @{ Type = "option"; Key = "1"; Text = "Pending"; Function = { return "Pending" }; IsHighlighted = $todoItem.Status -eq "Pending" }
@@ -723,7 +1069,18 @@ function Update-TrackerTodoItem {
     }
 }
 
-# Complete todo item
+<#
+.SYNOPSIS
+    Marks a todo item as completed with numeric confirmation.
+.DESCRIPTION
+    Marks a todo item as completed and updates its completion date.
+.PARAMETER ID
+    The ID of the todo item to complete.
+.PARAMETER IsSilent
+    If specified, no user prompts are displayed.
+.EXAMPLE
+    Complete-TrackerTodoItem -ID "12345"
+#>
 function Complete-TrackerTodoItem {
     [CmdletBinding()]
     param(
@@ -760,6 +1117,17 @@ function Complete-TrackerTodoItem {
                 Read-Host "Press Enter to continue..."
             }
             return $true
+        }
+        
+        # Get confirmation
+        if (-not $IsSilent) {
+            $confirm = Confirm-Action -ActionDescription "Are you sure you want to mark this todo as completed?"
+            
+            if (-not $confirm) {
+                Write-ColorText "Operation cancelled." -ForegroundColor $colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $false
+            }
         }
         
         # Update status and completion date
@@ -803,7 +1171,21 @@ function Complete-TrackerTodoItem {
     }
 }
 
-# Remove todo item
+
+<#
+.SYNOPSIS
+    Removes a todo item with numeric confirmation.
+.DESCRIPTION
+    Deletes a todo item from the todo list with numeric confirmation.
+.PARAMETER ID
+    The ID of the todo item to remove.
+.PARAMETER IsSilent
+    If specified, no user prompts are displayed.
+.PARAMETER Force
+    If specified, no confirmation is required.
+.EXAMPLE
+    Remove-TrackerTodoItem -ID "12345"
+#>
 function Remove-TrackerTodoItem {
     [CmdletBinding()]
     param(
@@ -840,9 +1222,9 @@ function Remove-TrackerTodoItem {
             Write-ColorText "Are you sure you want to delete this todo item?" -ForegroundColor $colors.Warning
             Write-ColorText "Task: $($todoItem.TaskDescription)" -ForegroundColor $colors.Normal
             
-            $confirm = Read-UserInput -Prompt "Type 'yes' to confirm"
+            $confirm = Confirm-Action -ActionDescription "Are you sure you want to delete this todo item?"
             
-            if ($confirm -ne "yes") {
+            if (-not $confirm) {
                 Write-ColorText "Deletion cancelled." -ForegroundColor $colors.Warning
                 Read-Host "Press Enter to continue..."
                 return $false
@@ -879,204 +1261,6 @@ function Remove-TrackerTodoItem {
     }
 }
 
-# Show Todo Management Menu
-function Show-TodoMenu {
-    $todoMenuItems = @()
-    
-    $todoMenuItems += @{
-        Key = "header_1"
-        Text = "Todo Management"
-        Type = "header"
-    }
-    
-    $todoMenuItems += @{
-        Key = "1"
-        Text = "View Pending Todos"
-        Function = {
-            Show-TodoList
-            return $null
-        }
-        Type = "option"
-    }
-    
-    $todoMenuItems += @{
-        Key = "2"
-        Text = "View All Todos"
-        Function = {
-            Show-TodoList -IncludeCompleted -ShowAll
-            return $null
-        }
-        Type = "option"
-    }
-    
-    $todoMenuItems += @{
-        Key = "3"
-        Text = "Create New Todo"
-        Function = {
-            New-TrackerTodoItem
-            return $null
-        }
-        Type = "option"
-    }
-    
-    $todoMenuItems += @{
-        Key = "4"
-        Text = "Update Todo"
-        Function = {
-            # First, show the todo list
-            $todos = Show-TodoList
-            
-            # If no todos, return
-            if ($todos.Count -eq 0) {
-                return $null
-            }
-            
-            # Prompt for todo ID
-            $todoID = Read-UserInput -Prompt "Enter Todo ID to update (or 0 to cancel)"
-            
-            if ($todoID -eq "0") {
-                $colors = (Get-CurrentTheme).Colors
-                Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
-                Read-Host "Press Enter to continue..."
-                return $null
-            }
-            
-            # Update the todo
-            Update-TrackerTodoItem -ID $todoID
-            return $null
-        }
-        Type = "option"
-    }
-    
-    $todoMenuItems += @{
-        Key = "5"
-        Text = "Complete Todo"
-        Function = {
-            # First, show the pending todo list
-            $todos = Show-TodoList
-            
-            # If no todos, return
-            if ($todos.Count -eq 0) {
-                return $null
-            }
-            
-            # Prompt for todo ID
-            $todoID = Read-UserInput -Prompt "Enter Todo ID to mark as completed (or 0 to cancel)"
-            
-            if ($todoID -eq "0") {
-                $colors = (Get-CurrentTheme).Colors
-                Write-ColorText "Operation cancelled." -ForegroundColor $colors.Warning
-                Read-Host "Press Enter to continue..."
-                return $null
-            }
-            
-            # Complete the todo
-            Complete-TrackerTodoItem -ID $todoID
-            return $null
-        }
-        Type = "option"
-    }
-    
-    $todoMenuItems += @{
-        Key = "6"
-        Text = "Delete Todo"
-        Function = {
-            # First, show all todos
-            $todos = Show-TodoList -IncludeCompleted -ShowAll
-            
-            # If no todos, return
-            if ($todos.Count -eq 0) {
-                return $null
-            }
-            
-            # Prompt for todo ID
-            $todoID = Read-UserInput -Prompt "Enter Todo ID to delete (or 0 to cancel)"
-            
-            if ($todoID -eq "0") {
-                $colors = (Get-CurrentTheme).Colors
-                Write-ColorText "Deletion cancelled." -ForegroundColor $colors.Warning
-                Read-Host "Press Enter to continue..."
-                return $null
-            }
-            
-            # Delete the todo
-            Remove-TrackerTodoItem -ID $todoID
-            return $null
-        }
-        Type = "option"
-    }
-    
-    $todoMenuItems += @{
-        Key = "7"
-        Text = "View Project Todos"
-        Function = {
-            # Get available projects
-            $config = Get-AppConfig
-            $projects = @(Get-EntityData -FilePath $config.ProjectsFullPath)
-            $colors = (Get-CurrentTheme).Colors
-            
-            if ($projects.Count -eq 0) {
-                Write-ColorText "No projects found." -ForegroundColor $colors.Warning
-                Read-Host "Press Enter to continue..."
-                return $null
-            }
-            
-            # Display project selection menu
-            $projectMenuItems = @()
-            $projectMenuItems += @{ Type = "header"; Text = "Select Project" }
-            
-            $index = 1
-            foreach ($project in $projects | Sort-Object Nickname) {
-                $projectMenuItems += @{
-                    Type = "option"
-                    Key = "$index"
-                    Text = "$($project.Nickname) - $($project.FullProjectName)"
-                    Function = { 
-                        param($selectedProject)
-                        return $selectedProject.Nickname 
-                    }
-                    Args = @($project)
-                }
-                $index++
-            }
-            
-            $projectMenuItems += @{ Type = "separator" }
-            $projectMenuItems += @{
-                Type = "option"
-                Key = "0"
-                Text = "Cancel"
-                Function = { return $null }
-                IsExit = $true
-            }
-            
-            $projectNickname = Show-DynamicMenu -Title "Select Project" -MenuItems $projectMenuItems
-            
-            if ($null -eq $projectNickname) {
-                return $null
-            }
-            
-            # Show todos for the selected project
-            Show-FilteredTodoList -Nickname $projectNickname
-            return $null
-        }
-        Type = "option"
-    }
-    
-    $todoMenuItems += @{
-        Key = "sep_1"
-        Type = "separator"
-    }
-    
-    $todoMenuItems += @{
-        Key = "0"
-        Text = "Back to Main Menu"
-        Function = { return $true }
-        IsExit = $false  # Changed to false to prevent exiting application
-        Type = "option"
-    }
-    
-    Show-DynamicMenu -Title "Todo Management" -MenuItems $todoMenuItems
-}
 
 # Export functions
 #Export-ModuleMember -Function Show-TodoList, Show-FilteredTodoList, New-TrackerTodoItem, 

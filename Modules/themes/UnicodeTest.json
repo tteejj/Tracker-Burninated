@@ -1,0 +1,53 @@
+{
+  "Menu": {
+    "UnselectedPrefix": " ",
+    "SelectedPrefix": "►"
+  },
+  "Version": "1.0",
+  "Description": "Unicode test theme with ANSI colors",
+  "Headers": {
+    "BorderChar": "─",
+    "Style": "Simple",
+    "Corners": "┌┐└┘"
+  },
+  "UseAnsiColors": true,
+  "Name": "UnicodeTest",
+  "Author": "Diagnostic",
+  "Table": {
+    "CellPadding": 1,
+    "HeaderStyle": "Bold",
+    "Chars": {
+      "Vertical": "│",
+      "TopRight": "┐",
+      "RightJunction": "┤",
+      "BottomLeft": "└",
+      "BottomJunction": "┴",
+      "LeftJunction": "├",
+      "TopLeft": "┌",
+      "TopJunction": "┬",
+      "Horizontal": "─",
+      "CrossJunction": "┼",
+      "BottomRight": "┘"
+    },
+    "RowSeparator": true
+  },
+  "Colors": {
+    "Completed": "DarkGray",
+    "Warning": "Yellow",
+    "Accent2": "Cyan",
+    "Accent1": "Yellow",
+    "Error": "Red",
+    "Success": "Green",
+    "Header": "Magenta",
+    "TableBorder": "Magenta",
+    "Overdue": "Red",
+    "DueSoon": "Yellow",
+    "Normal": "Cyan"
+  },
+  "ProgressBar": {
+    "FilledChar": "█",
+    "EmptyChar": "░",
+    "RightCap": "]",
+    "LeftCap": "["
+  }
+}
