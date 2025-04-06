@@ -570,9 +570,9 @@ function New-TrackerTodoItem {
         } else {
             # Get project nickname if applicable
             $projectNickname = ""
-            $useProject = Read-UserInput -Prompt "Associate with a project? (1=Yes, 0=No)" -NumericOnly
+            $useProject = Read-UserInput -Prompt "Associate with a project? (1=Yes, 2=No, 0=Cancel)" -NumericOnly
             
-            if ($useProject -eq "CANCEL") {
+            if ($useProject -eq "CANCEL" -or $useProject -eq "0") {
                 if (-not $IsSilent) {
                     $colors = (Get-CurrentTheme).Colors
                     Write-ColorText "Todo creation cancelled." -ForegroundColor $colors.Warning
@@ -860,8 +860,8 @@ function Update-TrackerTodoItem {
             }
             
             # Update project association
-            $updateProject = Read-UserInput -Prompt "Update project association? (1=Yes, 0=No)" -NumericOnly
-            if ($updateProject -eq "CANCEL") {
+            $updateProject = Read-UserInput -Prompt "Update project association? (1=Yes, 2=No, 0=Cancel)" -NumericOnly
+            if ($updateProject -eq "CANCEL" -or $updateProject -eq "0") {
                 if (-not $IsSilent) {
                     Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
                     Read-Host "Press Enter to continue..."
@@ -870,8 +870,8 @@ function Update-TrackerTodoItem {
             }
             
             if ($updateProject -eq "1") {
-                $useProject = Read-UserInput -Prompt "Associate with a project? (1=Yes, 0=No)" -NumericOnly
-                if ($useProject -eq "CANCEL") {
+                $useProject = Read-UserInput -Prompt "Associate with a project? (1=Yes, 2=No, 0=Cancel)" -NumericOnly
+                if ($useProject -eq "CANCEL" -or $useProject -eq "0") {
                     if (-not $IsSilent) {
                         Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
                         Read-Host "Press Enter to continue..."
@@ -935,8 +935,8 @@ function Update-TrackerTodoItem {
             }
             
             # Update importance
-            $updateImportance = Read-UserInput -Prompt "Update importance? (1=Yes, 0=No)" -NumericOnly
-            if ($updateImportance -eq "CANCEL") {
+            $updateImportance = Read-UserInput -Prompt "Update importance? (1=Yes, 2=No, 0=Cancel)" -NumericOnly
+            if ($updateImportance -eq "CANCEL" -or $updateImportance -eq "0") {
                 if (-not $IsSilent) {
                     Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
                     Read-Host "Press Enter to continue..."
@@ -967,8 +967,8 @@ function Update-TrackerTodoItem {
             }
             
             # Update due date
-            $updateDueDate = Read-UserInput -Prompt "Update due date? (1=Yes, 0=No)" -NumericOnly
-            if ($updateDueDate -eq "CANCEL") {
+            $updateDueDate = Read-UserInput -Prompt "Update due date? (1=Yes, 2=No, 0=Cancel)" -NumericOnly
+            if ($updateDueDate -eq "CANCEL" -or $updateDueDate -eq "0") {
                 if (-not $IsSilent) {
                     Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
                     Read-Host "Press Enter to continue..."
@@ -992,8 +992,8 @@ function Update-TrackerTodoItem {
             }
             
             # Update status
-            $updateStatus = Read-UserInput -Prompt "Update status? (1=Yes, 0=No)" -NumericOnly
-            if ($updateStatus -eq "CANCEL") {
+            $updateStatus = Read-UserInput -Prompt "Update status? (1=Yes, 2=No, 0=Cancel)" -NumericOnly
+            if ($updateStatus -eq "CANCEL" -or $updateStatus -eq "0") {
                 if (-not $IsSilent) {
                     Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
                     Read-Host "Press Enter to continue..."
@@ -1030,8 +1030,7 @@ function Update-TrackerTodoItem {
                     $todoItem.CompletedDate = ""
                 }
             }
-        }
-        
+        }        
         # Save the updated todos
         $updatedTodos = @()
         foreach ($todo in $todos) {
@@ -1121,9 +1120,15 @@ function Complete-TrackerTodoItem {
         
         # Get confirmation
         if (-not $IsSilent) {
-            $confirm = Confirm-Action -ActionDescription "Are you sure you want to mark this todo as completed?"
+            $confirm = Get-UserConfirmation -Message "Are you sure you want to mark this todo as completed?"
             
-            if (-not $confirm) {
+            if ($confirm -eq "Cancel") {
+                Write-ColorText "Operation cancelled." -ForegroundColor $colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $false
+            }
+            
+            if ($confirm -eq "No") {
                 Write-ColorText "Operation cancelled." -ForegroundColor $colors.Warning
                 Read-Host "Press Enter to continue..."
                 return $false
@@ -1222,9 +1227,15 @@ function Remove-TrackerTodoItem {
             Write-ColorText "Are you sure you want to delete this todo item?" -ForegroundColor $colors.Warning
             Write-ColorText "Task: $($todoItem.TaskDescription)" -ForegroundColor $colors.Normal
             
-            $confirm = Confirm-Action -ActionDescription "Are you sure you want to delete this todo item?"
+            $confirm = Get-UserConfirmation -Message "Are you sure you want to delete this todo item?"
             
-            if (-not $confirm) {
+            if ($confirm -eq "Cancel") {
+                Write-ColorText "Deletion cancelled." -ForegroundColor $colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $false
+            }
+            
+            if ($confirm -eq "No") {
                 Write-ColorText "Deletion cancelled." -ForegroundColor $colors.Warning
                 Read-Host "Press Enter to continue..."
                 return $false

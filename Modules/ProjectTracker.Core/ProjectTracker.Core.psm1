@@ -4130,10 +4130,22 @@ function Confirm-Action {
     )
     
     Write-ColorText $ActionDescription -ForegroundColor $script:colors.Warning
-    Write-Host "Enter 1 for Yes, 0 for No: " -ForegroundColor $script:colors.Accent2 -NoNewline
+    Write-Host "Enter 1 for Yes, 2 for No, 0 to Cancel: " -ForegroundColor $script:colors.Accent2 -NoNewline
     $response = Read-Host
     
-    return $response -eq "1"
+    if ($response -eq "0") {
+        return "Cancel"
+    }
+    elseif ($response -eq "2") {
+        return "No"
+    }
+    elseif ($response -eq "1") {
+        return "Yes"
+    }
+    else {
+        # Default to No for any other input
+        return "No"
+    }
 }
 
 <#
@@ -4474,7 +4486,7 @@ function Show-Confirmation {
     # Use info box if available
     if ($script:currentTheme) {
         # Display message with the theme engine
-        Show-InfoBox -Title $Title -Message "$Message`n`nEnter 1 for Yes, 0 for No." -Type Warning
+        Show-InfoBox -Title $Title -Message "$Message`n`nEnter 1 for Yes, 2 for No, 0 to Cancel." -Type Warning
     } else {
         # Fall back to simple console output
         Write-Host "`n-- $Title --" -ForegroundColor Yellow
@@ -4483,10 +4495,10 @@ function Show-Confirmation {
     }
     
     # Get default option display
-    $defaultOption = if ($DefaultYes) { "(1/0, default: 1)" } else { "(1/0, default: 0)" }
+    $defaultOption = if ($DefaultYes) { "(Default: 1)" } else { "(Default: 2)" }
     
     # Ask for confirmation
-    Write-Host "Confirm $defaultOption " -ForegroundColor Cyan -NoNewline
+    Write-Host "Enter 1=Yes, 2=No, 0=Cancel $defaultOption " -ForegroundColor Cyan -NoNewline
     $response = Read-Host
     
     # Handle empty response
@@ -4495,8 +4507,71 @@ function Show-Confirmation {
     }
     
     # Return based on response
-    return $response -eq '1'
+    if ($response -eq "0") {
+        return "Cancel"
+    }
+    elseif ($response -eq "2") {
+        return "No"
+    }
+    elseif ($response -eq "1") {
+        return "Yes"
+    }
+    else {
+        # Handle invalid input by using the default
+        if ($DefaultYes) {
+            return "Yes"
+        } else {
+            return "No"
+        }
+    }
 }
+
+
+function Get-UserConfirmation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Message,
+        
+        [Parameter(Mandatory=$false)]
+        [switch]$DefaultYes
+    )
+    
+    $colors = (Get-CurrentTheme).Colors
+    Write-ColorText $Message -ForegroundColor $colors.Warning
+    
+    $defaultOption = if ($DefaultYes) { "(Default: Yes)" } else { "(Default: No)" }
+    $prompt = "Enter: 1=Yes, 2=No, 0=Cancel $defaultOption"
+    
+    $choice = Read-UserInput -Prompt $prompt -NumericOnly
+    
+    if ($choice -eq "CANCEL" -or $choice -eq "0") {
+        return "Cancel"
+    }
+    
+    if ($choice -eq "1") {
+        return "Yes"
+    }
+    
+    if ($choice -eq "2") {
+        return "No"
+    }
+    
+    # Handle empty input (user just pressed Enter)
+    if ([string]::IsNullOrEmpty($choice)) {
+        if ($DefaultYes) {
+            return "Yes"
+        } else {
+            return "No"
+        }
+    }
+    
+    # If we get here, the input was invalid
+    Write-ColorText "Invalid choice. Please enter 1, 2, or 0." -ForegroundColor $colors.Error
+    return Get-UserConfirmation -Message $Message -DefaultYes:$DefaultYes
+}
+
+
 
 #endregion User Input Functions
 
@@ -4937,7 +5012,7 @@ Export-ModuleMember -Function Get-AppConfig, Save-AppConfig, Handle-Error, Invok
     Update-EntityById, Remove-EntityById, Create-Entity, Parse-DateInput, 
     Convert-DisplayDateToInternal, Convert-InternalDateToDisplay, Get-RelativeDateDescription, 
     Get-DateInput, Get-FirstDayOfWeek, Get-WeekNumber, Get-MonthName, Get-RelativeWeekDescription, 
-    Get-MonthDateRange, Read-UserInput, Confirm-Action, New-MenuItems, Show-Confirmation, 
+    Get-MonthDateRange, Read-UserInput, Confirm-Action, Get-UserConfirmation, New-MenuItems, Show-Confirmation, 
     Get-EnvironmentVariable, Join-PathSafely, Get-UniqueFileName, ConvertTo-ValidFileName, 
     Get-TempFilePath, Convert-PriorityToInt, New-ID, New-RandomPassword, 
     Convert-BytesToHumanReadable, Find-SubstringPosition, Convert-ToSlug, 

@@ -578,10 +578,13 @@ function Update-TrackerProject {
             # Date Assigned
             $currentAssigned = Convert-InternalDateToDisplay -InternalDate $updatedProj.DateAssigned
             Write-ColorText "Current Assigned Date: $currentAssigned" -ForegroundColor (Get-CurrentTheme).Colors.Normal
-            $updateAssigned = Read-UserInput -Prompt "Update Assigned Date? (1=Yes, 0=No)" -NumericOnly
+            $updateAssigned = Read-UserInput -Prompt "Update Assigned Date? (1=Yes, 2=No, 0=Cancel)" -NumericOnly
             if ($updateAssigned -eq "CANCEL" -or $updateAssigned -eq "0") {
-                # Skip updating this field
-            } else {
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            } 
+            if ($updateAssigned -eq "1") {
                 $newAssignedDate = Get-DateInput -PromptText "Enter new Assigned Date" -AllowCancel
                 if ($null -eq $newAssignedDate) {
                     Write-ColorText "Date update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
@@ -593,10 +596,13 @@ function Update-TrackerProject {
             # Due Date
             $currentDue = Convert-InternalDateToDisplay -InternalDate $updatedProj.DueDate
             Write-ColorText "Current Due Date: $currentDue" -ForegroundColor (Get-CurrentTheme).Colors.Normal
-            $updateDue = Read-UserInput -Prompt "Update Due Date? (1=Yes, 0=No)" -NumericOnly
+            $updateDue = Read-UserInput -Prompt "Update Due Date? (1=Yes, 2=No, 0=Cancel)" -NumericOnly
             if ($updateDue -eq "CANCEL" -or $updateDue -eq "0") {
-                # Skip updating this field
-            } else {
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            if ($updateDue -eq "1") {
                 $newDueDate = Get-DateInput -PromptText "Enter new Due Date" -AllowCancel
                 if ($null -eq $newDueDate) {
                     Write-ColorText "Date update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
@@ -608,10 +614,13 @@ function Update-TrackerProject {
             # BF Date
             $currentBF = Convert-InternalDateToDisplay -InternalDate $updatedProj.BFDate
             Write-ColorText "Current BF Date: $currentBF" -ForegroundColor (Get-CurrentTheme).Colors.Normal
-            $updateBF = Read-UserInput -Prompt "Update BF Date? (1=Yes, 0=No)" -NumericOnly
+            $updateBF = Read-UserInput -Prompt "Update BF Date? (1=Yes, 2=No, 0=Cancel)" -NumericOnly
             if ($updateBF -eq "CANCEL" -or $updateBF -eq "0") {
-                # Skip updating this field
-            } else {
+                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            if ($updateBF -eq "1") {
                 $newBFDate = Get-DateInput -PromptText "Enter new BF Date" -AllowCancel
                 if ($null -eq $newBFDate) {
                     Write-ColorText "Date update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
@@ -652,18 +661,16 @@ function Update-TrackerProject {
             
             $statusChoice = Read-UserInput -Prompt "Select new status" -NumericOnly
             
-            if ($statusChoice -eq "CANCEL") {
-                Write-ColorText "Update cancelled." -ForegroundColor (Get-CurrentTheme).Colors.Warning
-                Read-Host "Press Enter to continue..."
-                return $null
-            }
-            
-            switch($statusChoice) {
-                '1' { $updatedProj.Status = "Active" }
-                '2' { $updatedProj.Status = "Closed" }
-                '3' { $updatedProj.Status = "On Hold" }
-                '0' {} '' {} default {
-                    Write-ColorText "Invalid status choice. Keeping original." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+            if ($statusChoice -eq "CANCEL" -or $statusChoice -eq "0") {
+                Write-ColorText "Status unchanged." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+            } else {
+                switch($statusChoice) {
+                    '1' { $updatedProj.Status = "Active" }
+                    '2' { $updatedProj.Status = "Closed" }
+                    '3' { $updatedProj.Status = "On Hold" }
+                    default {
+                        Write-ColorText "Invalid status choice. Keeping original." -ForegroundColor (Get-CurrentTheme).Colors.Warning
+                    }
                 }
             }
         }
@@ -1346,14 +1353,19 @@ function Remove-TrackerProject {
         Write-ColorText "  Name: $($projectToDelete.FullProjectName)" -ForegroundColor $colors.Normal
         Write-ColorText "  Status: $($projectToDelete.Status)" -ForegroundColor $colors.Normal
 
-        $confirm = Confirm-Action -ActionDescription "Are you sure you want to delete this project?"
+        $confirm = Get-UserConfirmation -Message "Are you sure you want to delete this project?"
 
-        if (-not $confirm) {
+        if ($confirm -eq "Cancel") {
             Write-ColorText "Deletion cancelled." -ForegroundColor $colors.Warning
             Read-Host "Press Enter to continue..."
             return $false
         }
-
+        
+        if ($confirm -eq "No") {
+            Write-ColorText "Deletion cancelled." -ForegroundColor $colors.Warning
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
         # Filter out the project to be deleted
         $updatedProjects = $projects | Where-Object { $_.Nickname -ne $Nickname }
 
