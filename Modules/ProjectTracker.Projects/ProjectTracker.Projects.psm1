@@ -1438,7 +1438,252 @@ function Show-ProjectMenu {
         Text = "Project Management"
     }
     
-    # Menu items 1-7...
+    # Project menu options
+    $menuItems += @{
+        Type = "option"
+        Key = "1"
+        Text = "List Active Projects"
+        Function = {
+            Show-ProjectList
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "2"
+        Text = "List All Projects"
+        Function = {
+            Show-ProjectList -IncludeAll
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "3"
+        Text = "Create New Project"
+        Function = {
+            New-TrackerProject
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "4"
+        Text = "Update Project"
+        Function = {
+            # First, show the project list
+            $projects = Show-ProjectList
+            
+            # If no projects, return
+            if ($projects.Count -eq 0) {
+                return $null
+            }
+            
+            # Display numeric list for selection
+            Write-Host "Select project to update by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
+            
+            for ($i = 0; $i -lt $projects.Count; $i++) {
+                $projNum = $i + 1
+                Write-Host "[$projNum] $($projects[$i].Nickname) - $($projects[$i].FullProjectName)" -ForegroundColor $script:colors.Normal
+            }
+            
+            $selection = Read-UserInput -Prompt "Enter project number" -NumericOnly
+            
+            if ($selection -eq "CANCEL" -or $selection -eq "0") {
+                Write-ColorText "Update cancelled." -ForegroundColor $script:colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Convert selection to int and check range
+            try {
+                $index = [int]$selection - 1
+                if ($index -lt 0 -or $index -ge $projects.Count) {
+                    Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                    Read-Host "Press Enter to continue..."
+                    return $null
+                }
+                
+                # Update the selected project
+                Update-TrackerProject -Nickname $projects[$index].Nickname
+            } catch {
+                Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                Read-Host "Press Enter to continue..."
+            }
+            
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "5"
+        Text = "Change Project Status"
+        Function = {
+            # First, show the project list
+            $projects = Show-ProjectList
+            
+            # If no projects, return
+            if ($projects.Count -eq 0) {
+                return $null
+            }
+            
+            # Display numeric list for selection
+            Write-Host "Select project to change status by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
+            
+            for ($i = 0; $i -lt $projects.Count; $i++) {
+                $projNum = $i + 1
+                Write-Host "[$projNum] $($projects[$i].Nickname) - $($projects[$i].FullProjectName) (Status: $($projects[$i].Status))" -ForegroundColor $script:colors.Normal
+            }
+            
+            $selection = Read-UserInput -Prompt "Enter project number" -NumericOnly
+            
+            if ($selection -eq "CANCEL" -or $selection -eq "0") {
+                Write-ColorText "Status change cancelled." -ForegroundColor $script:colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Convert selection to int and check range
+            try {
+                $index = [int]$selection - 1
+                if ($index -lt 0 -or $index -ge $projects.Count) {
+                    Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                    Read-Host "Press Enter to continue..."
+                    return $null
+                }
+                
+                $projectNickname = $projects[$index].Nickname
+                
+                # Status selection menu
+                $statusMenu = @()
+                $statusMenu += @{ Type = "header"; Text = "Select New Status" }
+                $statusMenu += @{ Type = "option"; Key = "1"; Text = "Active"; Function = { return "Active" } }
+                $statusMenu += @{ Type = "option"; Key = "2"; Text = "On Hold"; Function = { return "On Hold" } }
+                $statusMenu += @{ Type = "option"; Key = "3"; Text = "Closed"; Function = { return "Closed" } }
+                $statusMenu += @{ Type = "separator" }
+                $statusMenu += @{ Type = "option"; Key = "0"; Text = "Cancel"; Function = { return $null }; IsExit = $true }
+                
+                $newStatus = Show-DynamicMenu -Title "Select New Status" -MenuItems $statusMenu
+                
+                if ($null -eq $newStatus) {
+                    Write-ColorText "Status change cancelled." -ForegroundColor $script:colors.Warning
+                    Read-Host "Press Enter to continue..."
+                    return $null
+                }
+                
+                # Change the project status
+                Set-TrackerProjectStatus -Nickname $projectNickname -Status $newStatus
+            } catch {
+                Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                Read-Host "Press Enter to continue..."
+            }
+            
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "6"
+        Text = "Delete Project"
+        Function = {
+            # First, show all projects
+            $projects = Show-ProjectList -IncludeAll
+            
+            # If no projects, return
+            if ($projects.Count -eq 0) {
+                return $null
+            }
+            
+            # Display numeric list for selection
+            Write-Host "Select project to DELETE by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
+            
+            for ($i = 0; $i -lt $projects.Count; $i++) {
+                $projNum = $i + 1
+                Write-Host "[$projNum] $($projects[$i].Nickname) - $($projects[$i].FullProjectName)" -ForegroundColor $script:colors.Normal
+            }
+            
+            $selection = Read-UserInput -Prompt "Enter project number" -NumericOnly
+            
+            if ($selection -eq "CANCEL" -or $selection -eq "0") {
+                Write-ColorText "Deletion cancelled." -ForegroundColor $script:colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Convert selection to int and check range
+            try {
+                $index = [int]$selection - 1
+                if ($index -lt 0 -or $index -ge $projects.Count) {
+                    Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                    Read-Host "Press Enter to continue..."
+                    return $null
+                }
+                
+                # Delete the selected project
+                Remove-TrackerProject -Nickname $projects[$index].Nickname
+            } catch {
+                Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                Read-Host "Press Enter to continue..."
+            }
+            
+            return $null
+        }
+    }
+    
+    $menuItems += @{
+        Type = "option"
+        Key = "7"
+        Text = "Update Project Hours"
+        Function = {
+            # First, show active projects
+            $projects = Show-ProjectList
+            
+            # If no projects, return
+            if ($projects.Count -eq 0) {
+                return $null
+            }
+            
+            # Display numeric list for selection
+            Write-Host "Select project to update hours by number (0 to cancel):" -ForegroundColor $script:colors.Accent2
+            
+            for ($i = 0; $i -lt $projects.Count; $i++) {
+                $projNum = $i + 1
+                Write-Host "[$projNum] $($projects[$i].Nickname) - $($projects[$i].FullProjectName) (Current: $($projects[$i].CumulativeHrs) hrs)" -ForegroundColor $script:colors.Normal
+            }
+            
+            $selection = Read-UserInput -Prompt "Enter project number" -NumericOnly
+            
+            if ($selection -eq "CANCEL" -or $selection -eq "0") {
+                Write-ColorText "Update cancelled." -ForegroundColor $script:colors.Warning
+                Read-Host "Press Enter to continue..."
+                return $null
+            }
+            
+            # Convert selection to int and check range
+            try {
+                $index = [int]$selection - 1
+                if ($index -lt 0 -or $index -ge $projects.Count) {
+                    Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                    Read-Host "Press Enter to continue..."
+                    return $null
+                }
+                
+                # Update hours for the selected project
+                Update-TrackerProjectHours -Nickname $projects[$index].Nickname
+                Read-Host "Press Enter to continue..."
+            } catch {
+                Write-ColorText "Invalid selection." -ForegroundColor $script:colors.Error
+                Read-Host "Press Enter to continue..."
+            }
+            
+            return $null
+        }
+    }
     
     $menuItems += @{
         Type = "separator"
@@ -1454,7 +1699,7 @@ function Show-ProjectMenu {
         IsExit = $true
     }
     
-    # Show menu but always return null
+    # Show menu but always return null to stay in the application
     $menuResult = Show-DynamicMenu -Title "Project Management" -MenuItems $menuItems
     return $null
 }
