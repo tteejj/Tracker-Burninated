@@ -4634,5 +4634,17 @@ $coreFunctions = @(
     'Copy-HashtableDeep', 'ConvertFrom-JsonToHashtable'
 )
 
-# Add this line at the end of ProjectTracker.Core.psm1
-Export-ModuleMember -Function $coreFunctions
+# Add this line at the end of Export-ModuleMember -Function Get-AppConfig, Save-AppConfig, Handle-Error, Invoke-WithErrorHandling, 
+    Write-AppLog, Rotate-LogFile, Get-AppLogContent, Ensure-DirectoryExists, Get-EntityData, 
+    Save-EntityData, Update-CumulativeHours, Initialize-DataEnvironment, Get-EntityById, 
+    Update-EntityById, Remove-EntityById, Create-Entity, Parse-DateInput, 
+    Convert-DisplayDateToInternal, Convert-InternalDateToDisplay, Get-RelativeDateDescription, 
+    Get-DateInput, Get-FirstDayOfWeek, Get-WeekNumber, Get-MonthName, Get-RelativeWeekDescription, 
+    Get-MonthDateRange, Read-UserInput, Confirm-Action, New-MenuItems, Show-Confirmation, 
+    Get-EnvironmentVariable, Join-PathSafely, Get-UniqueFileName, ConvertTo-ValidFileName, 
+    Get-TempFilePath, Convert-PriorityToInt, New-ID, New-RandomPassword, 
+    Convert-BytesToHumanReadable, Find-SubstringPosition, Convert-ToSlug, 
+    Initialize-ThemeEngine, Get-Theme, Set-CurrentTheme, Get-CurrentTheme, 
+    Get-AvailableThemes, Write-ColorText, Show-Table, Render-Header, Show-InfoBox, 
+    Show-ProgressBar, Show-DynamicMenu, Get-VisibleStringLength, Safe-TruncateString, 
+    Remove-AnsiCodes
