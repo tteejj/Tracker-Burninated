@@ -10,7 +10,7 @@
 
     # Define modules needed by this module
     RequiredModules = @(
-        @{ModuleName = 'ProjectTracker.Core'; ModuleVersion = '1.0.0'}
+        @{ModuleName = 'ProjectTracker.Core'}
     )
 
     # Functions to export from this module
