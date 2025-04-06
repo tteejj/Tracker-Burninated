@@ -316,16 +316,37 @@ function Show-TodoList {
             DueDate = "Due Date"
         }
         
+        # Ensure ID is displayed properly
+        foreach ($todo in $todos) {
+            if ($todo.ID.Length -gt 8) {
+                # Truncate ID to make it more readable - first 8 chars should be enough
+                $todo | Add-Member -NotePropertyName "_DisplayID" -NotePropertyValue $todo.ID.Substring(0, 8) -Force
+            } else {
+                $todo | Add-Member -NotePropertyName "_DisplayID" -NotePropertyValue $todo.ID -Force
+            }
+        }
+        
+        # Replace ID column with the truncated version
+        $columnsToShow[0] = "_DisplayID"
+        $tableHeaders["_DisplayID"] = "ID"
+        
         $formatters = @{
-            DueDate = { param($val) Convert-InternalDateToDisplay -InternalDate $val }
-            Importance = { param($val) 
-                $colors = (Get-CurrentTheme).Colors
-                switch ($val) {
-                    "High" { Write-ColorText $val -ForegroundColor "Red" -NoNewline; $val }
-                    "Normal" { Write-ColorText $val -ForegroundColor "Yellow" -NoNewline; $val }
-                    "Low" { Write-ColorText $val -ForegroundColor "Gray" -NoNewline; $val }
-                    default { return $val }
+            DueDate = { 
+                param($val) 
+                if ([string]::IsNullOrWhiteSpace($val)) { return "" }
+                
+                try {
+                    # Only parse date portion, strip any time component
+                    $date = [datetime]::ParseExact($val, "yyyyMMdd", $null)
+                    return $date.ToString("yyyy-MM-dd")
+                } catch {
+                    # If parsing fails, try the standard conversion
+                    return Convert-InternalDateToDisplay -InternalDate $val
                 }
+            }
+            Importance = { 
+                param($val) 
+                return $val # Just return the string value, no special formatting needed
             }
         }
         
@@ -649,24 +670,30 @@ function New-TrackerTodoItem {
                 return $false
             }
             
-            # Display importance selection menu with numbers
-            $importanceMenu = @()
-            $importanceMenu += @{ Type = "header"; Text = "Select Importance" }
-            $importanceMenu += @{ Type = "option"; Key = "1"; Text = "High"; Function = { return "High" } }
-            $importanceMenu += @{ Type = "option"; Key = "2"; Text = "Normal"; Function = { return "Normal" }; IsHighlighted = $true }
-            $importanceMenu += @{ Type = "option"; Key = "3"; Text = "Low"; Function = { return "Low" } }
-            $importanceMenu += @{ Type = "separator" }
-            $importanceMenu += @{ Type = "option"; Key = "0"; Text = "Cancel"; Function = { return $null }; IsExit = $true }
+            # Use a simpler approach for importance selection
+            $colors = (Get-CurrentTheme).Colors
+            Write-ColorText "Select Importance:" -ForegroundColor $colors.Accent2
+            Write-ColorText "[1] High" -ForegroundColor $colors.Error
+            Write-ColorText "[2] Normal" -ForegroundColor $colors.Warning
+            Write-ColorText "[3] Low" -ForegroundColor $colors.Normal
+            Write-ColorText "[0] Cancel" -ForegroundColor $colors.Accent2
             
-            $importance = Show-DynamicMenu -Title "Select Importance" -MenuItems $importanceMenu
+            $importanceChoice = Read-UserInput -Prompt "Enter importance" -NumericOnly
             
-            if ($null -eq $importance) {
+            if ($importanceChoice -eq "CANCEL" -or $importanceChoice -eq "0") {
                 if (-not $IsSilent) {
-                    $colors = (Get-CurrentTheme).Colors
                     Write-ColorText "Todo creation cancelled." -ForegroundColor $colors.Warning
                     Read-Host "Press Enter to continue..."
                 }
                 return $false
+            }
+            
+            $importance = "Normal" # Default
+            switch ($importanceChoice) {
+                "1" { $importance = "High" }
+                "2" { $importance = "Normal" }
+                "3" { $importance = "Low" }
+                default { $importance = "Normal" }
             }
             
             # Get due date
@@ -766,7 +793,6 @@ function New-TrackerTodoItem {
         return $false
     }
 }
-
 # Get todo item by ID
 function Get-TrackerTodoItem {
     [CmdletBinding()]
@@ -945,17 +971,16 @@ function Update-TrackerTodoItem {
             }
             
             if ($updateImportance -eq "1") {
-                $importanceMenu = @()
-                $importanceMenu += @{ Type = "header"; Text = "Select Importance" }
-                $importanceMenu += @{ Type = "option"; Key = "1"; Text = "High"; Function = { return "High" }; IsHighlighted = $todoItem.Importance -eq "High" }
-                $importanceMenu += @{ Type = "option"; Key = "2"; Text = "Normal"; Function = { return "Normal" }; IsHighlighted = $todoItem.Importance -eq "Normal" }
-                $importanceMenu += @{ Type = "option"; Key = "3"; Text = "Low"; Function = { return "Low" }; IsHighlighted = $todoItem.Importance -eq "Low" }
-                $importanceMenu += @{ Type = "separator" }
-                $importanceMenu += @{ Type = "option"; Key = "0"; Text = "Cancel"; Function = { return "CANCEL" }; IsExit = $true }
+                # Direct importance selection
+                Write-ColorText "Select Importance:" -ForegroundColor $colors.Accent2
+                Write-ColorText "[1] High" -ForegroundColor $colors.Error 
+                Write-ColorText "[2] Normal" -ForegroundColor $colors.Warning
+                Write-ColorText "[3] Low" -ForegroundColor $colors.Normal
+                Write-ColorText "[0] Cancel" -ForegroundColor $colors.Accent2
                 
-                $importance = Show-DynamicMenu -Title "Select Importance" -MenuItems $importanceMenu
+                $importanceChoice = Read-UserInput -Prompt "Enter importance" -NumericOnly
                 
-                if ($importance -eq "CANCEL") {
+                if ($importanceChoice -eq "CANCEL" -or $importanceChoice -eq "0") {
                     if (-not $IsSilent) {
                         Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
                         Read-Host "Press Enter to continue..."
@@ -963,7 +988,14 @@ function Update-TrackerTodoItem {
                     return $false
                 }
                 
-                $todoItem.Importance = $importance
+                switch ($importanceChoice) {
+                    "1" { $todoItem.Importance = "High" }
+                    "2" { $todoItem.Importance = "Normal" }
+                    "3" { $todoItem.Importance = "Low" }
+                    default { 
+                        Write-ColorText "Invalid choice, keeping current importance." -ForegroundColor $colors.Warning
+                    }
+                }
             }
             
             # Update due date
@@ -1002,18 +1034,17 @@ function Update-TrackerTodoItem {
             }
             
             if ($updateStatus -eq "1") {
-                $statusMenu = @()
-                $statusMenu += @{ Type = "header"; Text = "Select Status" }
-                $statusMenu += @{ Type = "option"; Key = "1"; Text = "Pending"; Function = { return "Pending" }; IsHighlighted = $todoItem.Status -eq "Pending" }
-                $statusMenu += @{ Type = "option"; Key = "2"; Text = "In Progress"; Function = { return "In Progress" }; IsHighlighted = $todoItem.Status -eq "In Progress" }
-                $statusMenu += @{ Type = "option"; Key = "3"; Text = "Completed"; Function = { return "Completed" }; IsHighlighted = $todoItem.Status -eq "Completed" }
-                $statusMenu += @{ Type = "option"; Key = "4"; Text = "Deferred"; Function = { return "Deferred" }; IsHighlighted = $todoItem.Status -eq "Deferred" }
-                $statusMenu += @{ Type = "separator" }
-                $statusMenu += @{ Type = "option"; Key = "0"; Text = "Cancel"; Function = { return "CANCEL" }; IsExit = $true }
+                # Direct status selection
+                Write-ColorText "Select Status:" -ForegroundColor $colors.Accent2
+                Write-ColorText "[1] Pending" -ForegroundColor $colors.Normal
+                Write-ColorText "[2] In Progress" -ForegroundColor $colors.Accent1
+                Write-ColorText "[3] Completed" -ForegroundColor $colors.Success
+                Write-ColorText "[4] Deferred" -ForegroundColor $colors.Warning
+                Write-ColorText "[0] Cancel" -ForegroundColor $colors.Accent2
                 
-                $status = Show-DynamicMenu -Title "Select Status" -MenuItems $statusMenu
+                $statusChoice = Read-UserInput -Prompt "Enter status" -NumericOnly
                 
-                if ($status -eq "CANCEL") {
+                if ($statusChoice -eq "CANCEL" -or $statusChoice -eq "0") {
                     if (-not $IsSilent) {
                         Write-ColorText "Update cancelled." -ForegroundColor $colors.Warning
                         Read-Host "Press Enter to continue..."
@@ -1021,16 +1052,28 @@ function Update-TrackerTodoItem {
                     return $false
                 }
                 
-                $todoItem.Status = $status
+                $newStatus = $todoItem.Status
+                switch ($statusChoice) {
+                    "1" { $newStatus = "Pending" }
+                    "2" { $newStatus = "In Progress" }
+                    "3" { $newStatus = "Completed" }
+                    "4" { $newStatus = "Deferred" }
+                    default { 
+                        Write-ColorText "Invalid choice, keeping current status." -ForegroundColor $colors.Warning
+                    }
+                }
+                
+                $todoItem.Status = $newStatus
                 
                 # If status changed to Completed, update CompletedDate
-                if ($status -eq "Completed" -and [string]::IsNullOrWhiteSpace($todoItem.CompletedDate)) {
+                if ($newStatus -eq "Completed" -and [string]::IsNullOrWhiteSpace($todoItem.CompletedDate)) {
                     $todoItem.CompletedDate = (Get-Date).ToString("yyyyMMdd")
-                } elseif ($status -ne "Completed") {
+                } elseif ($newStatus -ne "Completed") {
                     $todoItem.CompletedDate = ""
                 }
             }
-        }        
+        }
+        
         # Save the updated todos
         $updatedTodos = @()
         foreach ($todo in $todos) {

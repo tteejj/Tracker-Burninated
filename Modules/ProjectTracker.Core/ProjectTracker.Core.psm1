@@ -1841,8 +1841,22 @@ function Write-ColorText {
     if ($null -eq $Text) { $Text = "" }
     
     # Determine colors to use
-    $fg = if ($null -ne $ForegroundColor) { $ForegroundColor } else { (Get-CurrentTheme).Colors.Normal }
-    $bg = $BackgroundColor
+    $fg = if ($null -ne $ForegroundColor -and -not [string]::IsNullOrEmpty($ForegroundColor)) { 
+        $ForegroundColor 
+    } else { 
+        # Make sure we have a valid theme object first
+        if ($script:currentTheme -and $script:currentTheme.Colors -and $script:currentTheme.Colors.ContainsKey("Normal")) {
+            $script:currentTheme.Colors.Normal
+        } else {
+            "White" # Fallback default
+        }
+    }
+    
+    $bg = if ($null -ne $BackgroundColor -and -not [string]::IsNullOrEmpty($BackgroundColor)) {
+        $BackgroundColor
+    } else {
+        $null # No background color by default
+    }
     
     # Get console color from various formats
     function Get-ConsoleColor {
@@ -1866,8 +1880,19 @@ function Write-ColorText {
         return [System.ConsoleColor]::White
     }
     
+    # Set default ANSI usage based on current theme
+    $useAnsi = $false
+    if ($null -ne $script:currentTheme -and $script:currentTheme.ContainsKey("UseAnsiColors")) {
+        $useAnsi = $script:currentTheme.UseAnsiColors
+    }
+    
+    # Use existing ANSI var if defined
+    if ($null -ne $script:useAnsiColors) {
+        $useAnsi = $script:useAnsiColors
+    }
+    
     # Check if we should use ANSI colors
-    if ($script:useAnsiColors) {
+    if ($useAnsi) {
         # Get ANSI color code
         function Get-AnsiColorCode {
             param($Color, [switch]$IsBackground)
@@ -1875,6 +1900,25 @@ function Write-ColorText {
             if ($null -eq $Color) { return $null }
             
             $colorMap = if ($IsBackground) { $script:ansiBackgroundColors } else { $script:ansiForegroundColors }
+            
+            if ($null -eq $colorMap) {
+                # Define fallback color maps if not available
+                $fgMap = @{
+                    "Black" = "30"; "DarkRed" = "31"; "DarkGreen" = "32"; "DarkYellow" = "33";
+                    "DarkBlue" = "34"; "DarkMagenta" = "35"; "DarkCyan" = "36"; "Gray" = "37";
+                    "DarkGray" = "90"; "Red" = "91"; "Green" = "92"; "Yellow" = "93";
+                    "Blue" = "94"; "Magenta" = "95"; "Cyan" = "96"; "White" = "97"
+                }
+                
+                $bgMap = @{
+                    "Black" = "40"; "DarkRed" = "41"; "DarkGreen" = "42"; "DarkYellow" = "43";
+                    "DarkBlue" = "44"; "DarkMagenta" = "45"; "DarkCyan" = "46"; "Gray" = "47";
+                    "DarkGray" = "100"; "Red" = "101"; "Green" = "102"; "Yellow" = "103";
+                    "Blue" = "104"; "Magenta" = "105"; "Cyan" = "106"; "White" = "107"
+                }
+                
+                $colorMap = if ($IsBackground) { $bgMap } else { $fgMap }
+            }
             
             if ($Color -is [string] -and $colorMap.ContainsKey($Color)) {
                 return $colorMap[$Color]
@@ -1927,6 +1971,7 @@ function Write-ColorText {
             NoNewline = $NoNewline
         }
         
+        # Safely convert colors to ConsoleColor
         $consoleFg = Get-ConsoleColor -Color $fg
         if ($null -ne $consoleFg) {
             $params.ForegroundColor = $consoleFg
@@ -1935,6 +1980,15 @@ function Write-ColorText {
         $consoleBg = Get-ConsoleColor -Color $bg
         if ($null -ne $consoleBg) {
             $params.BackgroundColor = $consoleBg
+        }
+        
+        # Remove invalid colors to avoid crashing
+        if ($params.ContainsKey("ForegroundColor") -and $null -eq $params.ForegroundColor) {
+            $params.Remove("ForegroundColor")
+        }
+        
+        if ($params.ContainsKey("BackgroundColor") -and $null -eq $params.BackgroundColor) {
+            $params.Remove("BackgroundColor")
         }
         
         Write-Host @params
@@ -2308,20 +2362,23 @@ function Show-Table {
                 HeaderStyle = "Normal"
             }
         }
-        $script:colors = $script:currentTheme.Colors
     }
     
     # Make sure colors are set
     if ($null -eq $script:colors -or $script:colors.Count -eq 0) {
-        $script:colors = @{
-            Normal = "White"
-            Header = "Cyan"
-            Accent1 = "Yellow"
-            TableBorder = "Gray"
-            Error = "Red"
-            Warning = "Yellow"
-            Success = "Green"
-            Completed = "DarkGray"
+        if ($script:currentTheme.ContainsKey("Colors")) {
+            $script:colors = $script:currentTheme.Colors
+        } else {
+            $script:colors = @{
+                Normal = "White"
+                Header = "Cyan"
+                Accent1 = "Yellow"
+                TableBorder = "Gray"
+                Error = "Red"
+                Warning = "Yellow"
+                Success = "Green"
+                Completed = "DarkGray"
+            }
         }
     }
     
@@ -2341,25 +2398,24 @@ function Show-Table {
     }
     
     # Try to get theme-specific border characters safely
-# Try to get theme-specific border characters safely
-if ($null -ne $script:currentTheme -and 
-    $null -ne $script:currentTheme.Table -and 
-    $script:currentTheme.Table.ContainsKey("Chars") -and
-    $null -ne $script:currentTheme.Table.Chars) {
-    
-    # Copy over only valid characters
-    $themeChars = $script:currentTheme.Table.Chars
-    
-    # Create a copy of the keys first
-    $charKeysArray = @($chars.Keys)
-    
-    # Now iterate through the copy of keys
-    foreach ($key in $charKeysArray) {
-        if ($themeChars.ContainsKey($key) -and $null -ne $themeChars[$key]) {
-            $chars[$key] = $themeChars[$key]
+    if ($null -ne $script:currentTheme -and 
+        $null -ne $script:currentTheme.Table -and 
+        $script:currentTheme.Table.ContainsKey("Chars") -and
+        $null -ne $script:currentTheme.Table.Chars) {
+        
+        # Copy over only valid characters
+        $themeChars = $script:currentTheme.Table.Chars
+        
+        # Create a copy of the keys first
+        $charKeysArray = @($chars.Keys)
+        
+        # Now iterate through the copy of keys
+        foreach ($key in $charKeysArray) {
+            if ($themeChars.ContainsKey($key) -and $null -ne $themeChars[$key]) {
+                $chars[$key] = $themeChars[$key]
+            }
         }
     }
-}
     
     # Determine if row separators should be used (with fallback)
     $useRowSeparator = $false
@@ -2401,6 +2457,8 @@ if ($null -ne $script:currentTheme -and
     function Safe-GetVisibleLength {
         param([string]$text)
         
+        if ([string]::IsNullOrEmpty($text)) { return 0 }
+        
         try {
             return Get-VisibleStringLength -Text $text
         } catch {
@@ -2409,74 +2467,63 @@ if ($null -ne $script:currentTheme -and
         }
     }
     
-    # Calculate column widths - process all columns first
+    # Format cells safely
+    function Format-CellValue {
+        param($value, $formatter, $item)
+        
+        if ($null -eq $value) { return "" }
+        
+        if ($null -ne $formatter) {
+            try {
+                $result = & $formatter $value $item
+                if ($null -eq $result) { return "" }
+                return $result.ToString()
+            } catch {
+                return "[ERR]"
+            }
+        }
+        
+        return $value.ToString()
+    }
+    
+    # Calculate widths for all columns
     foreach ($col in $columnArray) {
-        # Check for fixed width first
+        # Start with the header text
+        $headerText = if ($headersCopy.ContainsKey($col)) { $headersCopy[$col] } else { $col }
+        $maxContentLen = Safe-GetVisibleLength -text $headerText
+        
+        # Check for fixed width
         if ($fixedWidths.ContainsKey($col) -and $fixedWidths[$col] -gt 0) {
-            $widths[$col] = $fixedWidths[$col]
+            $widths[$col] = [Math]::Max($maxContentLen + 2, $fixedWidths[$col])
             continue
         }
         
-        # Calculate width based on content
-        $headerText = if ($headersCopy.ContainsKey($col)) { $headersCopy[$col] } else { $col }
-        $maxContentLen = $headerText.Length
-        
-        # Add some padding
-        $widths[$col] = $maxContentLen + 2
-        
-        # Ensure minimum width
-        if ($widths[$col] -lt 3) {
-            $widths[$col] = 3
-        }
-    }
-    
-    # Now process data items to adjust column widths
-    if ($null -ne $dataArray -and $dataArray.Count -gt 0) {
-        foreach ($col in $columnArray) {
-            # Skip if we already have a fixed width
-            if ($fixedWidths.ContainsKey($col) -and $fixedWidths[$col] -gt 0) {
-                continue
-            }
-            
-            $headerText = if ($headersCopy.ContainsKey($col)) { $headersCopy[$col] } else { $col }
-            $maxContentLen = $headerText.Length
-            
-            # Create a separate loop for each column
-            $allItems = @() + $dataArray  # Make a copy to be safe
-            foreach ($item in $allItems) {
+        # Check data for this column to find max width needed
+        if ($null -ne $dataArray -and $dataArray.Count -gt 0) {
+            foreach ($item in $dataArray) {
                 if ($null -eq $item) { continue }
                 
-                $value = if ($item.PSObject.Properties[$col]) { 
+                $value = if ($item.PSObject.Properties.Name -contains $col) { 
                     $item.PSObject.Properties[$col].Value 
                 } else { 
                     "" 
                 }
                 
-                $formatted = ""
-                if ($formattersCopy.ContainsKey($col)) {
-                    try {
-                        $result = & $formattersCopy[$col] $value $item
-                        $formatted = if ($null -ne $result) { $result.ToString() } else { "" }
-                    } catch {
-                        $formatted = "[ERR]"
-                    }
-                } else {
-                    $formatted = if ($null -ne $value) { $value.ToString() } else { "" }
-                }
-                
+                $formatted = Format-CellValue -value $value -formatter $formattersCopy[$col] -item $item
                 $len = Safe-GetVisibleLength -text $formatted
+                
                 if ($len -gt $maxContentLen) {
                     $maxContentLen = $len
                 }
             }
-            
-            # Update width for this column
-            $widths[$col] = $maxContentLen + 2
-            
-            # Ensure minimum width
-            if ($widths[$col] -lt 3) {
-                $widths[$col] = 3
-            }
+        }
+        
+        # Set width with padding
+        $widths[$col] = $maxContentLen + 2
+        
+        # Ensure minimum width
+        if ($widths[$col] -lt 3) {
+            $widths[$col] = 3
         }
     }
     
@@ -2524,7 +2571,7 @@ if ($null -ne $script:currentTheme -and
         }
         
         # Pad based on alignment
-        $padding = $width - 2 - $headerText.Length
+        $padding = $width - $headerText.Length - 2
         if ($padding -lt 0) { $padding = 0 }
         
         $leftPad = 0
@@ -2595,56 +2642,35 @@ if ($null -ne $script:currentTheme -and
         
         # Draw each cell - use another fixed copy of columns
         foreach ($col in $columnArray) {
-            $cellValue = if ($item.PSObject.Properties[$col]) { 
+            $cellValue = if ($item.PSObject.Properties.Name -contains $col) { 
                 $item.PSObject.Properties[$col].Value 
             } else { 
                 "" 
             }
             
             # Format cell value
-            $formatted = ""
-            if ($formattersCopy.ContainsKey($col)) {
-                try {
-                    $result = & $formattersCopy[$col] $cellValue $item
-                    $formatted = if ($null -ne $result) { $result.ToString() } else { "" }
-                } catch {
-                    $formatted = "[ERR]"
-                }
-            } else {
-                $formatted = if ($null -ne $cellValue) { $cellValue.ToString() } else { "" }
-            }
+            $formatted = Format-CellValue -value $cellValue -formatter $formattersCopy[$col] -item $item
             
             $width = $widths[$col]
             $alignment = if ($alignments.ContainsKey($col)) { $alignments[$col] } else { "Left" }
             
-            # Truncate if needed - with safe handling
-            $visibleLength = 0
-            try {
-                $visibleLength = Get-VisibleStringLength -Text $formatted
-            } catch {
-                $visibleLength = $formatted.Length
-            }
+            # Get visible length correctly
+            $visibleLength = Safe-GetVisibleLength -text $formatted
             
+            # Truncate if needed
             if ($visibleLength -gt $width - 2) {
                 try {
-                    $formatted = Safe-TruncateString -Text $formatted -MaxLength ($width - 2) -PreserveAnsi
+                    $formatted = $formatted.Substring(0, $width - 5) + "..."
+                    $visibleLength = Safe-GetVisibleLength -text $formatted
                 } catch {
-                    # Fallback to basic truncation
-                    if ($formatted.Length -gt $width - 2) {
-                        $formatted = $formatted.Substring(0, $width - 5) + "..."
-                    }
-                }
-                
-                # Recalculate length after truncation
-                try {
-                    $visibleLength = Get-VisibleStringLength -Text $formatted
-                } catch {
-                    $visibleLength = $formatted.Length
+                    # Fallback if truncation fails
+                    $formatted = $formatted.Substring(0, 3) + "..."
+                    $visibleLength = 6
                 }
             }
             
             # Pad based on alignment
-            $padding = $width - 2 - $visibleLength
+            $padding = $width - $visibleLength - 2
             if ($padding -lt 0) { $padding = 0 }
             
             $leftPad = 0
@@ -2675,7 +2701,6 @@ if ($null -ne $script:currentTheme -and
     Write-ColorText $botBorder -ForegroundColor $script:colors.TableBorder
     
     return $rowIndex
-}
 
 <#
 .SYNOPSIS
@@ -2799,9 +2824,21 @@ function Show-DynamicMenu {
                 
                 # Call function with arguments if provided
                 if ($selectedItem.ContainsKey("Args")) {
-                    $result = & $selectedItem.Function $selectedItem.Args
+                    try {
+                        # Direct invocation to capture the result
+                        $result = & $selectedItem.Function $selectedItem.Args
+                    } catch {
+                        Write-ColorText "Error executing menu action: $($_.Exception.Message)" -ForegroundColor $script:colors.Error
+                        Read-Host "Press Enter to continue..."
+                    }
                 } else {
-                    $result = & $selectedItem.Function
+                    try {
+                        # Direct invocation to capture the result
+                        $result = & $selectedItem.Function
+                    } catch {
+                        Write-ColorText "Error executing menu action: $($_.Exception.Message)" -ForegroundColor $script:colors.Error
+                        Read-Host "Press Enter to continue..."
+                    }
                 }
                 
                 # Only exit the menu if IsExit is explicitly true
@@ -2860,13 +2897,17 @@ function Show-DynamicMenu {
                         }
                     }
                 }
+                
+                # Return the result if it's not null for non-exit options
+                if ($null -ne $result) {
+                    return $result
+                }
             }
         } else {
             Write-ColorText "Invalid selection. Please enter a valid number." -ForegroundColor $script:colors.Error
         }
     }
 }
-
 #endregion Menu Functions
 
 <#
@@ -4330,12 +4371,23 @@ function Convert-DisplayDateToInternal {
 function Convert-InternalDateToDisplay {
     param(
         [string]$InternalDate,
-        [string]$DisplayFormat = $script:config.displayDateFormat,
+        [string]$DisplayFormat = $null, # Will get from config
         [string]$InternalFormat = "yyyyMMdd" # Assuming internal format is YYYYMMDD
     )
     
     if ([string]::IsNullOrWhiteSpace($InternalDate)) { 
         return "" 
+    }
+    
+    # Get format from config if not specified
+    if ([string]::IsNullOrWhiteSpace($DisplayFormat)) {
+        try {
+            $config = Get-AppConfig
+            $DisplayFormat = $config.DisplayDateFormat
+        } catch {
+            # Default to MM/dd/yyyy if config not available
+            $DisplayFormat = "MM/dd/yyyy" 
+        }
     }
     
     try {
@@ -4347,7 +4399,7 @@ function Convert-InternalDateToDisplay {
             $parsedDate = [datetime]::Parse($InternalDate)
             return $parsedDate.ToString($DisplayFormat)
         } catch {
-            Write-Warning "Could not convert internal date '$InternalDate' to display format."
+            Write-Verbose "Could not convert internal date '$InternalDate' to display format."
             return $InternalDate # Return original if conversion fails
         }
     }

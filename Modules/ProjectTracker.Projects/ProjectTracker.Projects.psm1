@@ -98,9 +98,45 @@ function Show-ProjectList {
         $today = (Get-Date).Date
         
         $tableFormatters = @{
-            DateAssigned = { param($val) Convert-InternalDateToDisplay $val }
-            DueDate = { param($val) Convert-InternalDateToDisplay $val }
-            BFDate = { param($val) Convert-InternalDateToDisplay $val }
+            DateAssigned = { 
+                param($val) 
+                if ([string]::IsNullOrWhiteSpace($val)) { return "" }
+                
+                try {
+                    # Only parse date portion, strip any time component
+                    $date = [datetime]::ParseExact($val, "yyyyMMdd", $null)
+                    return $date.ToString("yyyy-MM-dd")
+                } catch {
+                    # If parsing fails, try the standard conversion
+                    return Convert-InternalDateToDisplay -InternalDate $val
+                }
+            }
+            DueDate = { 
+                param($val) 
+                if ([string]::IsNullOrWhiteSpace($val)) { return "" }
+                
+                try {
+                    # Only parse date portion, strip any time component
+                    $date = [datetime]::ParseExact($val, "yyyyMMdd", $null)
+                    return $date.ToString("yyyy-MM-dd")
+                } catch {
+                    # If parsing fails, try the standard conversion
+                    return Convert-InternalDateToDisplay -InternalDate $val
+                }
+            }
+            BFDate = { 
+                param($val) 
+                if ([string]::IsNullOrWhiteSpace($val)) { return "" }
+                
+                try {
+                    # Only parse date portion, strip any time component
+                    $date = [datetime]::ParseExact($val, "yyyyMMdd", $null)
+                    return $date.ToString("yyyy-MM-dd")
+                } catch {
+                    # If parsing fails, try the standard conversion
+                    return Convert-InternalDateToDisplay -InternalDate $val
+                }
+            }
             CumulativeHrs = {
                 param($val)
                 try {
@@ -182,7 +218,7 @@ function New-TrackerProject {
     try {
         $config = Get-AppConfig
         $ProjectsFilePath = $config.ProjectsFullPath
-        $TodosFilePath = $config.TodosFullPath
+        $TodosFilePath = $config.TodosFilePath
         
         # Initialize new project object
         $newProj = if ($ProjectData) { 
@@ -388,7 +424,19 @@ function New-TrackerProject {
             }
             
             # Create todo item
-            Add-TodoItem -Nickname $newProj.Nickname -TaskDescription $todoDescription -DueDate $newProj.BFDate -Importance "Normal"
+            $todoData = @{
+                ID = New-ID
+                Nickname = $newProj.Nickname
+                TaskDescription = $todoDescription
+                Importance = "Normal"
+                DueDate = $newProj.BFDate
+                Status = "Pending"
+                CreatedDate = (Get-Date).ToString("yyyyMMdd")
+                CompletedDate = ""
+            }
+            
+            # Use New-TrackerTodoItem to create the todo
+            $todoCreated = New-TrackerTodoItem -TodoData $todoData -IsSilent
             
             # Log success
             Write-AppLog "Created new project: $($newProj.Nickname)" -Level INFO
@@ -405,7 +453,6 @@ function New-TrackerProject {
         return $null
     }
 }
-
 <#
 .SYNOPSIS
     Adds a todo item for a project.
