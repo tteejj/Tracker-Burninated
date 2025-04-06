@@ -1655,5 +1655,6 @@ Export-ModuleMember -Function @(
 )
 
 # Fix for ProjectTracker.Projects.psm1
-# Add this line at the end of ProjectTracker.Projects.psm1
-Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, Update-TrackerProjectHours, Show-ProjectMenu, Add-TodoItem, Update-TodoForProject
+# Add this line at the end of Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, 
+    Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, 
+    Update-TrackerProjectHours, Show-ProjectMenu
