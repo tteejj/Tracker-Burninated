@@ -2240,7 +2240,6 @@ function Render-Header {
 #>
 # Fix for the Show-Table function in ProjectTracker.Core.psm1
 # Replace the existing Show-Table function with this updated version
-
 function Show-Table {
     [CmdletBinding()]
     param (
@@ -2262,6 +2261,18 @@ function Show-Table {
         [Parameter(Mandatory=$false)]
         [scriptblock]$RowColorizer = $null
     )
+    
+    # Create defensive copies of all input collections
+    $dataArray = @() + $Data
+    $columnArray = @() + $Columns
+    $headersCopy = @{}
+    foreach ($key in $Headers.Keys) {
+        $headersCopy[$key] = $Headers[$key]
+    }
+    $formattersCopy = @{}
+    foreach ($key in $Formatters.Keys) {
+        $formattersCopy[$key] = $Formatters[$key]
+    }
     
     # Ensure we have a theme
     if ($null -eq $script:currentTheme) {
@@ -2330,19 +2341,25 @@ function Show-Table {
     }
     
     # Try to get theme-specific border characters safely
-    if ($null -ne $script:currentTheme -and 
-        $null -ne $script:currentTheme.Table -and 
-        $script:currentTheme.Table.ContainsKey("Chars") -and
-        $null -ne $script:currentTheme.Table.Chars) {
-        
-        # Copy over only valid characters
-        $themeChars = $script:currentTheme.Table.Chars
-        foreach ($key in $chars.Keys) {
-            if ($themeChars.ContainsKey($key) -and $null -ne $themeChars[$key]) {
-                $chars[$key] = $themeChars[$key]
-            }
+# Try to get theme-specific border characters safely
+if ($null -ne $script:currentTheme -and 
+    $null -ne $script:currentTheme.Table -and 
+    $script:currentTheme.Table.ContainsKey("Chars") -and
+    $null -ne $script:currentTheme.Table.Chars) {
+    
+    # Copy over only valid characters
+    $themeChars = $script:currentTheme.Table.Chars
+    
+    # Create a copy of the keys first
+    $charKeysArray = @($chars.Keys)
+    
+    # Now iterate through the copy of keys
+    foreach ($key in $charKeysArray) {
+        if ($themeChars.ContainsKey($key) -and $null -ne $themeChars[$key]) {
+            $chars[$key] = $themeChars[$key]
         }
     }
+}
     
     # Determine if row separators should be used (with fallback)
     $useRowSeparator = $false
@@ -2392,7 +2409,8 @@ function Show-Table {
         }
     }
     
-    foreach ($col in $Columns) {
+    # Calculate column widths - process all columns first
+    foreach ($col in $columnArray) {
         # Check for fixed width first
         if ($fixedWidths.ContainsKey($col) -and $fixedWidths[$col] -gt 0) {
             $widths[$col] = $fixedWidths[$col]
@@ -2400,12 +2418,32 @@ function Show-Table {
         }
         
         # Calculate width based on content
-        $headerText = if ($Headers.ContainsKey($col)) { $Headers[$col] } else { $col }
+        $headerText = if ($headersCopy.ContainsKey($col)) { $headersCopy[$col] } else { $col }
         $maxContentLen = $headerText.Length
         
-        # Check data for max content length
-        if ($null -ne $Data -and $Data.Count -gt 0) {
-            foreach ($item in $Data) {
+        # Add some padding
+        $widths[$col] = $maxContentLen + 2
+        
+        # Ensure minimum width
+        if ($widths[$col] -lt 3) {
+            $widths[$col] = 3
+        }
+    }
+    
+    # Now process data items to adjust column widths
+    if ($null -ne $dataArray -and $dataArray.Count -gt 0) {
+        foreach ($col in $columnArray) {
+            # Skip if we already have a fixed width
+            if ($fixedWidths.ContainsKey($col) -and $fixedWidths[$col] -gt 0) {
+                continue
+            }
+            
+            $headerText = if ($headersCopy.ContainsKey($col)) { $headersCopy[$col] } else { $col }
+            $maxContentLen = $headerText.Length
+            
+            # Create a separate loop for each column
+            $allItems = @() + $dataArray  # Make a copy to be safe
+            foreach ($item in $allItems) {
                 if ($null -eq $item) { continue }
                 
                 $value = if ($item.PSObject.Properties[$col]) { 
@@ -2415,9 +2453,9 @@ function Show-Table {
                 }
                 
                 $formatted = ""
-                if ($Formatters.ContainsKey($col)) {
+                if ($formattersCopy.ContainsKey($col)) {
                     try {
-                        $result = & $Formatters[$col] $value $item
+                        $result = & $formattersCopy[$col] $value $item
                         $formatted = if ($null -ne $result) { $result.ToString() } else { "" }
                     } catch {
                         $formatted = "[ERR]"
@@ -2431,14 +2469,14 @@ function Show-Table {
                     $maxContentLen = $len
                 }
             }
-        }
-        
-        # Add some padding
-        $widths[$col] = $maxContentLen + 2
-        
-        # Ensure minimum width
-        if ($widths[$col] -lt 3) {
-            $widths[$col] = 3
+            
+            # Update width for this column
+            $widths[$col] = $maxContentLen + 2
+            
+            # Ensure minimum width
+            if ($widths[$col] -lt 3) {
+                $widths[$col] = 3
+            }
         }
     }
     
@@ -2452,11 +2490,11 @@ function Show-Table {
         )
         
         $border = $Left
-        for ($i = 0; $i -lt $Columns.Count; $i++) {
-            $col = $Columns[$i]
+        for ($i = 0; $i -lt $columnArray.Count; $i++) {
+            $col = $columnArray[$i]
             $border += $Horizontal * $widths[$col]
             
-            if ($i -lt $Columns.Count - 1) {
+            if ($i -lt $columnArray.Count - 1) {
                 $border += $Junction
             }
         }
@@ -2472,8 +2510,8 @@ function Show-Table {
     # Draw header row
     Write-ColorText $chars.Vertical -ForegroundColor $script:colors.TableBorder -NoNewline
     
-    foreach ($col in $Columns) {
-        $headerText = if ($Headers.ContainsKey($col)) { $Headers[$col] } else { $col }
+    foreach ($col in $columnArray) {
+        $headerText = if ($headersCopy.ContainsKey($col)) { $headersCopy[$col] } else { $col }
         $width = $widths[$col]
         $alignment = if ($alignments.ContainsKey($col)) { $alignments[$col] } else { "Left" }
         
@@ -2510,9 +2548,9 @@ function Show-Table {
     Write-ColorText $midBorder -ForegroundColor $script:colors.TableBorder
     
     # Handle empty data case
-    if ($null -eq $Data -or $Data.Count -eq 0) {
+    if ($null -eq $dataArray -or $dataArray.Count -eq 0) {
         $emptyMessage = "No data available"
-        $totalWidth = ($Columns | ForEach-Object { $widths[$_] } | Measure-Object -Sum).Sum + $Columns.Count + 1
+        $totalWidth = ($columnArray | ForEach-Object { $widths[$_] } | Measure-Object -Sum).Sum + $columnArray.Count + 1
         
         $padWidth = [Math]::Max(0, ($totalWidth - $emptyMessage.Length - 2) / 2)
         $leftPad = " " * [Math]::Floor($padWidth)
@@ -2529,9 +2567,10 @@ function Show-Table {
         return 0
     }
     
-    # Draw data rows
+    # Draw data rows - use a fixed copy
+    $allDataItems = @() + $dataArray
     $rowIndex = 0
-    foreach ($item in $Data) {
+    foreach ($item in $allDataItems) {
         $rowIndex++
         
         # Skip null items
@@ -2554,8 +2593,8 @@ function Show-Table {
         # Start row with vertical border
         Write-ColorText $chars.Vertical -ForegroundColor $script:colors.TableBorder -NoNewline
         
-        # Draw each cell
-        foreach ($col in $Columns) {
+        # Draw each cell - use another fixed copy of columns
+        foreach ($col in $columnArray) {
             $cellValue = if ($item.PSObject.Properties[$col]) { 
                 $item.PSObject.Properties[$col].Value 
             } else { 
@@ -2564,9 +2603,9 @@ function Show-Table {
             
             # Format cell value
             $formatted = ""
-            if ($Formatters.ContainsKey($col)) {
+            if ($formattersCopy.ContainsKey($col)) {
                 try {
-                    $result = & $Formatters[$col] $cellValue $item
+                    $result = & $formattersCopy[$col] $cellValue $item
                     $formatted = if ($null -ne $result) { $result.ToString() } else { "" }
                 } catch {
                     $formatted = "[ERR]"
@@ -2625,7 +2664,7 @@ function Show-Table {
         Write-Host "" # End row
         
         # Draw row separator if enabled and not the last row
-        if ($useRowSeparator -and $rowIndex -lt $Data.Count) {
+        if ($useRowSeparator -and $rowIndex -lt $allDataItems.Count) {
             $rowSepBorder = Build-TableBorder -Left $chars.LeftJunction -Horizontal $chars.Horizontal -Right $chars.RightJunction -Junction $chars.CrossJunction
             Write-ColorText $rowSepBorder -ForegroundColor $script:colors.TableBorder
         }
@@ -2637,7 +2676,6 @@ function Show-Table {
     
     return $rowIndex
 }
-    
 
 <#
 .SYNOPSIS
