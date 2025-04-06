@@ -5,16 +5,28 @@ $scriptDir = $PSScriptRoot # Use the directory where tracker.ps1 is located
 
 # --- Module Import ---
 # Use relative paths for development. Adjust if installing modules globally.
+#try {
+#    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Core\ProjectTracker.Core.psd1" -ErrorAction Stop
+#    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1" -ErrorAction Stop
+#    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Todos\ProjectTracker.Todos.psd1" -ErrorAction Stop
+#} catch {
+#    Write-Host "ERROR: Failed to import required Project Tracker modules." -ForegroundColor Red
+#    Write-Host "Details: $($_.Exception.Message)" -ForegroundColor Red
+#    Read-Host "Press Enter to exit"
+#    exit 1
+#}
 try {
-    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Core\ProjectTracker.Core.psd1" -ErrorAction Stop
-    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1" -ErrorAction Stop
-    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Todos\ProjectTracker.Todos.psd1" -ErrorAction Stop
+    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Core\ProjectTracker.Core.psd1" -ErrorAction Stop -Force  # <--- ADD -Force
+    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Projects\ProjectTracker.Projects.psd1" -ErrorAction Stop -Force # <--- ADD -Force
+    Import-Module -Name "$scriptDir\Modules\ProjectTracker.Todos\ProjectTracker.Todos.psd1" -ErrorAction Stop -Force    # <--- ADD -Force
+    # If you have other module imports, add -Force to them too
 } catch {
     Write-Host "ERROR: Failed to import required Project Tracker modules." -ForegroundColor Red
     Write-Host "Details: $($_.Exception.Message)" -ForegroundColor Red
     Read-Host "Press Enter to exit"
     exit 1
 }
+
 
 # Process command line arguments
 $disableAnsi = $false

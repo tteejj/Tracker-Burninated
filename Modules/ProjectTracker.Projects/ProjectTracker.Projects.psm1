@@ -1233,9 +1233,82 @@ function Remove-TrackerProject {
         [Parameter(Mandatory=$true)]
         [string]$Nickname
     )
-    
+
     Write-AppLog "Deleting project: $Nickname" -Level INFO
     Render-Header "Delete Project"
+
+    # --- START OF MISSING/RECONSTRUCTED CODE ---
+    try {
+        $config = Get-AppConfig
+        $ProjectsFilePath = $config.ProjectsFullPath
+        $TodosFilePath = $config.TodosFullPath
+        $colors = (Get-CurrentTheme).Colors
+
+        # Get projects and find the one to delete
+        $projects = @(Get-EntityData -FilePath $ProjectsFilePath -RequiredHeaders $PROJECTS_HEADERS)
+        $projectToDelete = $projects | Where-Object { $_.Nickname -eq $Nickname } | Select-Object -First 1
+
+        if (-not $projectToDelete) {
+            Write-ColorText "Error: Project '$Nickname' not found." -ForegroundColor $colors.Error
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
+
+        # Confirm deletion
+        Write-ColorText "WARNING: This will permanently delete project '$Nickname' and ALL associated todo items." -ForegroundColor $colors.Error
+        Write-ColorText "Project Details:" -ForegroundColor $colors.Warning
+        Write-ColorText "  Name: $($projectToDelete.FullProjectName)" -ForegroundColor $colors.Normal
+        Write-ColorText "  Status: $($projectToDelete.Status)" -ForegroundColor $colors.Normal
+
+        $confirm = Read-UserInput -Prompt "Type '$Nickname' to confirm deletion (or 0 to cancel)"
+
+        if ($confirm -ne $Nickname) {
+            Write-ColorText "Deletion cancelled." -ForegroundColor $colors.Warning
+            Read-Host "Press Enter to continue..."
+            return $false
+        }
+
+        # Filter out the project to be deleted
+        $updatedProjects = $projects | Where-Object { $_.Nickname -ne $Nickname }
+
+        # Get and filter todos associated with the project
+        $todos = @(Get-EntityData -FilePath $TodosFilePath -RequiredHeaders $TODO_HEADERS)
+        $updatedTodos = $todos | Where-Object { $_.Nickname -ne $Nickname }
+        $removedTodoCount = $todos.Count - $updatedTodos.Count
+
+        # Save updated projects
+        if (-not (Save-EntityData -Data $updatedProjects -FilePath $ProjectsFilePath -RequiredHeaders $PROJECTS_HEADERS)) {
+            Write-ColorText "Error saving updated project list after deletion." -ForegroundColor $colors.Error
+            # Attempt to continue to remove todos anyway, but log the error
+            Write-AppLog "Error saving project list after deleting $Nickname" -Level ERROR
+        }
+
+        # Save updated todos (even if project save failed, try to clean up)
+        if (Save-EntityData -Data $updatedTodos -FilePath $TodosFilePath -RequiredHeaders $TODO_HEADERS) {
+             Write-AppLog "Removed $removedTodoCount todo item(s) associated with project '$Nickname'." -Level INFO
+        } else {
+             Write-ColorText "Error saving updated todo list after deletion." -ForegroundColor $colors.Error
+             Write-AppLog "Error saving todo list after deleting items for project $Nickname" -Level ERROR
+             # If both saves failed, report a more significant failure
+             if ($updatedProjects.Count -eq $projects.Count) { # Check if project save also failed
+                 Read-Host "Press Enter to continue..."
+                 return $false
+             }
+        }
+
+        Write-ColorText "Project '$Nickname' and associated todos deleted successfully!" -ForegroundColor $colors.Success
+        Write-AppLog "Successfully deleted project '$Nickname' and $removedTodoCount associated todos." -Level INFO
+        Read-Host "Press Enter to continue..."
+        return $true
+
+    } catch {
+        Handle-Error -ErrorRecord $_ -Context "Deleting project '$Nickname'" -Continue
+        Read-Host "Press Enter to continue..."
+        return $false
+    }
+    # --- END OF MISSING/RECONSTRUCTED CODE ---
+
+} # <------------------------------------- ENSURE THIS CLOSING BRACE IS PRESENT
 
 ##Start of missing content
 # Add this function to the ProjectTracker.Projects.psm1 file
@@ -1656,5 +1729,6 @@ Export-ModuleMember -Function @(
 
 # Fix for ProjectTracker.Projects.psm1
 # Add this line at the end of Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, 
-    Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, 
-    Update-TrackerProjectHours, Show-ProjectMenu
+Export-ModuleMember -Function Show-ProjectList, New-TrackerProject, Update-TrackerProject, `
+    Remove-TrackerProject, Get-TrackerProject, Set-TrackerProjectStatus, `
+    Update-TrackerProjectHours, Show-ProjectMenu, Add-TodoItem, Update-TodoForProject

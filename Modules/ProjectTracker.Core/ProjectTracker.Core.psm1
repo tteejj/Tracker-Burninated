@@ -2052,7 +2052,7 @@ function Safe-TruncateString {
     if ($MaxLength -le 0) { return "" }
     
     $visibleLength = Get-VisibleStringLength -Text $Text
-    if ($visibleLength <= $MaxLength) {
+    if ($visibleLength -le $MaxLength) {
         return $Text # Already fits, no truncation needed
     }
     
@@ -2061,12 +2061,12 @@ function Safe-TruncateString {
             # This is a simplified approach that may not handle all ANSI cases perfectly
             # But it's more reliable than complex parsing that could fail
             $cleanText = Remove-AnsiCodes -Text $Text
-            if ($cleanText.Length <= $MaxLength) {
+            if ($cleanText.Length -le $MaxLength) {
                 return $Text # Edge case: ANSI codes make it look longer but actual content fits
             }
             
             # Simple ellipsis approach
-            if ($MaxLength <= 3) {
+            if ($MaxLength -le 3) {
                 return "..."
             }
             
@@ -2079,10 +2079,10 @@ function Safe-TruncateString {
                 if ($Text[$i] -eq [char]27 -and $i + 1 -lt $Text.Length -and $Text[$i + 1] -eq '[') {
                     # Found potential ANSI escape sequence
                     $j = $i
-                    while ($j < $Text.Length -and -not [char]::IsLetter($Text[$j])) {
+                    while ($j -lt$Text.Length -and -not [char]::IsLetter($Text[$j])) {
                         $j++
                     }
-                    if ($j < $Text.Length) {
+                    if ($j -lt $Text.Length) {
                         # Include the entire sequence
                         $result += $Text.Substring($i, $j - $i + 1)
                         $i = $j + 1
@@ -2109,7 +2109,7 @@ function Safe-TruncateString {
         else {
             # Simple truncation without ANSI preservation
             $cleanText = Remove-AnsiCodes -Text $Text
-            if ($MaxLength <= 3) {
+            if ($MaxLength -le 3) {
                 return "..."
             }
             return $cleanText.Substring(0, [Math]::Min($cleanText.Length, $MaxLength - 3)) + "..."
@@ -4634,7 +4634,8 @@ $coreFunctions = @(
     'Copy-HashtableDeep', 'ConvertFrom-JsonToHashtable'
 )
 
-# Add this line at the end of Export-ModuleMember -Function Get-AppConfig, Save-AppConfig, Handle-Error, Invoke-WithErrorHandling, 
+# Add this line at the end of 
+Export-ModuleMember -Function Get-AppConfig, Save-AppConfig, Handle-Error, Invoke-WithErrorHandling, 
     Write-AppLog, Rotate-LogFile, Get-AppLogContent, Ensure-DirectoryExists, Get-EntityData, 
     Save-EntityData, Update-CumulativeHours, Initialize-DataEnvironment, Get-EntityById, 
     Update-EntityById, Remove-EntityById, Create-Entity, Parse-DateInput, 
